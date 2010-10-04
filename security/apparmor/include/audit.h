@@ -127,6 +127,10 @@ struct apparmor_audit_data {
 			int rlim;
 			unsigned long max;
 		} rlim;
+		struct {
+			int type, protocol;
+			struct sock *sk;
+		} net;
 	};
 };
 
