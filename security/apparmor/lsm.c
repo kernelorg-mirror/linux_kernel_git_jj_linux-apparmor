@@ -637,8 +637,6 @@ static int apparmor_setprocattr(struct task_struct *task, char *name,
 		} else if (strcmp(command, "permprofile") == 0) {
 			error = aa_setprocattr_changeprofile(args, !AA_ONEXEC,
 							     AA_DO_TEST);
-		} else if (strcmp(command, "permipc") == 0) {
-			error = aa_setprocattr_permipc(args);
 		} else {
 			struct common_audit_data sa;
 			COMMON_AUDIT_DATA_INIT(&sa, NONE);
