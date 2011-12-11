@@ -495,11 +495,7 @@ x_clear:
 	cxt->profile = new_profile;
 
 	/* clear out all temporary/transitional state from the context */
-	aa_put_profile(cxt->previous);
-	aa_put_profile(cxt->onexec);
-	cxt->previous = NULL;
-	cxt->onexec = NULL;
-	cxt->token = 0;
+	aa_clear_task_cxt_trans(cxt);
 
 audit:
 	error = aa_audit_file(profile, &perms, GFP_KERNEL, OP_EXEC, MAY_EXEC,
@@ -598,7 +594,7 @@ int aa_change_hat(const char *hats[], int count, u64 token, bool permtest)
 {
 	const struct cred *cred;
 	struct aa_task_cxt *cxt;
-	struct aa_profile *profile, *previous_profile, *hat = NULL;
+	struct aa_profile *profile, *hat = NULL;
 	char *name = NULL;
 	int i;
 	struct file_perms perms = {};
@@ -609,7 +605,6 @@ int aa_change_hat(const char *hats[], int count, u64 token, bool permtest)
 	cred = get_current_cred();
 	cxt = cred->security;
 	profile = aa_cred_profile(cred);
-	previous_profile = cxt->previous;
 
 	if (unconfined(profile)) {
 		info = "unconfined";
@@ -679,11 +674,11 @@ int aa_change_hat(const char *hats[], int count, u64 token, bool permtest)
 				/* reset error for learning of new hats */
 				error = -ENOENT;
 		}
-	} else if (previous_profile) {
+	} else if (PROFILE_IS_HAT(profile)) {
 		/* Return to saved profile.  Kill task if restore fails
 		 * to avoid brute force attacks
 		 */
-		target = previous_profile->base.hname;
+		target = profile->parent->base.hname;
 		error = aa_restore_previous_profile(token);
 		perms.kill = AA_MAY_CHANGEHAT;
 	} else

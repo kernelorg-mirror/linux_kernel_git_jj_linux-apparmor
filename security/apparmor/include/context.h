@@ -57,8 +57,7 @@ static inline void aa_free_file_context(struct aa_file_cxt *cxt)
  * struct aa_task_cxt - primary label for confined tasks
  * @profile: the current profile   (NOT NULL)
  * @exec: profile to transition to on next exec  (MAYBE NULL)
- * @previous: profile the task may return to     (MAYBE NULL)
- * @token: magic value the task must know for returning to @previous_profile
+ * @token: magic value the task must know for returning to @parent
  *
  * Contains the task's current profile (which could change due to
  * change_hat).  Plus the hat_magic needed during change_hat.
@@ -68,7 +67,6 @@ static inline void aa_free_file_context(struct aa_file_cxt *cxt)
 struct aa_task_cxt {
 	struct aa_profile *profile;
 	struct aa_profile *onexec;
-	struct aa_profile *previous;
 	u64 token;
 };
 
@@ -161,6 +159,17 @@ static inline struct aa_profile *aa_current_profile(void)
 		aa_replace_current_profile(profile);
 
 	return profile;
+}
+
+/**
+ * aa_clear_task_cxt_trans - clear transition tracking info from the cxt
+ * @cxt: task context to clear (NOT NULL)
+ */
+static inline void aa_clear_task_cxt_trans(struct aa_task_cxt *cxt)
+{
+	aa_put_profile(cxt->onexec);
+	cxt->onexec = NULL;
+	cxt->token = 0;
 }
 
 #endif /* __AA_CONTEXT_H */
