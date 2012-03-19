@@ -212,6 +212,8 @@ int aa_audit(int type, struct aa_profile *profile, gfp_t gfp,
 
 	if (sa->aad.type == AUDIT_APPARMOR_KILL)
 		(void)send_sig_info(SIGKILL, NULL, sa->tsk ? sa->tsk : current);
+	else if (STOP_MODE(profile))
+		(void)send_sig_info(SIGSTOP, NULL, sa->tsk ? sa->tsk : current);
 
 	if (sa->aad.type == AUDIT_APPARMOR_ALLOWED)
 		return complain_error(sa->aad.error);

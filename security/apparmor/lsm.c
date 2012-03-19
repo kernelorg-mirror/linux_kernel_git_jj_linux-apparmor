@@ -921,7 +921,7 @@ static int param_set_mode(const char *val, struct kernel_param *kp)
 	if (!val)
 		return -EINVAL;
 
-	for (i = 0; i < APPARMOR_NAMES_MAX_INDEX; i++) {
+	for (i = 0; i < sizeof(profile_mode_names); i++) {
 		if (strcmp(val, profile_mode_names[i]) == 0) {
 			aa_g_profile_mode = i;
 			return 0;
@@ -989,6 +989,8 @@ static int __init apparmor_init(void)
 		aa_info_message("AppArmor initialized: complain mode enabled");
 	else if (aa_g_profile_mode == APPARMOR_KILL)
 		aa_info_message("AppArmor initialized: kill mode enabled");
+	else if (aa_g_profile_mode == APPARMOR_STOP)
+		aa_info_message("AppArmor initialized: stop mode enabled");
 	else
 		aa_info_message("AppArmor initialized");
 
