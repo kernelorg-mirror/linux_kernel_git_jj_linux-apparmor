@@ -97,6 +97,7 @@ const char *profile_mode_names[] = {
 	"enforce",
 	"complain",
 	"kill",
+	"stop",
 };
 
 /**

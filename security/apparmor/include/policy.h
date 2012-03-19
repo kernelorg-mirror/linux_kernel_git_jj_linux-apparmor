@@ -29,14 +29,15 @@
 #include "file.h"
 #include "resource.h"
 
-extern const char *profile_mode_names[];
-#define APPARMOR_NAMES_MAX_INDEX 3
+extern const char *profile_mode_names[4];
 
 #define PROFILE_MODE(_profile, _mode)		\
 	((aa_g_profile_mode == (_mode)) ||	\
 	 ((_profile)->mode == (_mode)))
 
 #define COMPLAIN_MODE(_profile)	PROFILE_MODE((_profile), APPARMOR_COMPLAIN)
+
+#define STOP_MODE(_profile) PROFILE_MODE((_profile), APPARMOR_STOP)
 
 #define KILL_MODE(_profile) PROFILE_MODE((_profile), APPARMOR_KILL)
 
@@ -52,6 +53,7 @@ enum profile_mode {
 	APPARMOR_ENFORCE,	/* enforce access rules */
 	APPARMOR_COMPLAIN,	/* allow and log access violations */
 	APPARMOR_KILL,		/* kill task on access violation */
+	APPARMOR_STOP,		/* stop task on access violation */
 };
 
 enum profile_flags {
