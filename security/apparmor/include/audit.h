@@ -70,6 +70,10 @@ enum audit_type {
 #define OP_FMMAP "file_mmap"
 #define OP_FMPROT "file_mprotect"
 
+#define OP_PIVOTROOT "pivotroot"
+#define OP_MOUNT "mount"
+#define OP_UMOUNT "umount"
+
 #define OP_CREATE "create"
 #define OP_POST_CREATE "post_create"
 #define OP_BIND "bind"
@@ -127,6 +131,13 @@ struct apparmor_audit_data {
 			int rlim;
 			unsigned long max;
 		} rlim;
+ 		struct {
+			const char *src_name;
+			const char *type;
+			const char *trans;
+			const char *data;
+			unsigned long flags;
+		} mnt;
 		struct {
 			int type, protocol;
 			struct sock *sk;
