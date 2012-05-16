@@ -84,7 +84,7 @@ static int disconnect(const struct path *path, char *buf, char **name,
  *          When no error the path name is returned in @name which points to
  *          to a position in @buf
  */
-static int d_namespace_path(struct path *path, char *buf, int buflen,
+static int d_namespace_path(const struct path *path, char *buf, int buflen,
 			    char **name, int flags)
 {
 	char *res;
@@ -169,7 +169,7 @@ out:
  *
  * Returns: %0 else error on failure
  */
-static int get_name_to_buffer(struct path *path, int flags, char *buffer,
+static int get_name_to_buffer(const struct path *path, int flags, char *buffer,
 			      int size, char **name, const char **info)
 {
 	int adjust = (flags & PATH_IS_DIR) ? 1 : 0;
@@ -215,8 +215,8 @@ static int get_name_to_buffer(struct path *path, int flags, char *buffer,
  *
  * Returns: %0 else error code if could retrieve name
  */
-int aa_path_name(struct path *path, int flags, char **buffer, const char **name,
-		 const char **info)
+int aa_path_name(const struct path *path, int flags, char **buffer,
+		 const char **name, const char **info)
 {
 	char *buf, *str = NULL;
 	int size = 256;
