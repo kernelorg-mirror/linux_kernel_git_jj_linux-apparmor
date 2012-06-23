@@ -182,8 +182,179 @@ const struct file_operations aa_fs_seq_file_ops = {
 	.release	= single_release,
 };
 
-/** Base file system setup **/
 
+static int aa_fs_seq_string_show(struct seq_file *seq, void *v)
+{
+	char *string = seq->private;
+
+	if (string)
+		seq_printf(seq, "%s", string);
+
+	return 0;
+}
+
+static int aa_fs_seq_string_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, aa_fs_seq_string_show, inode->i_private);
+}
+
+const struct file_operations aa_fs_seq_string_fops = {
+	.owner		= THIS_MODULE,
+	.open		= aa_fs_seq_string_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= single_release,
+};
+
+static int aa_fs_seq_mode_show(struct seq_file *seq, void *v)
+{
+	enum profile_mode *mode = seq->private;
+
+	switch (*mode) {
+	case APPARMOR_ENFORCE:
+		seq_printf(seq, "enforce");
+		break;
+	case APPARMOR_COMPLAIN:
+		seq_printf(seq, "complain");
+		break;
+	case APPARMOR_KILL:
+		seq_printf(seq, "kill");
+		break;
+	}
+
+	return 0;
+}
+
+static int aa_fs_seq_mode_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, aa_fs_seq_mode_show, inode->i_private);
+}
+
+const struct file_operations aa_fs_seq_mode_fops = {
+	.owner		= THIS_MODULE,
+	.open		= aa_fs_seq_mode_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= single_release,
+};
+
+/** fns to setup dynamic per profile/namespace files **/
+void __aa_fs_profile_rmdir(struct aa_profile *profile)
+{
+	struct aa_profile *child;
+	int i;
+
+	list_for_each_entry(child, &profile->base.profiles, base.list)
+		__aa_fs_profile_rmdir(child);
+
+	for (i = ARRAY_LEN(profile->dents) - 1; i >= 0; --i)
+		securityfs_remove(profile->dents[i]);
+}
+
+int __aa_fs_profile_mkdir(struct aa_profile *profile, struct dentry *parent)
+{
+	struct aa_profile *child;
+	struct dentry *dir;
+	int error, i = 0;
+
+	profile->dents[i++] = securityfs_create_dir(profile->sidstr, parent);
+	if (IS_ERR(profile->dents[i - 1]))
+		goto fail;
+	dir = profile->dents[0];
+
+	profile->dents[i++] = securityfs_create_dir("profiles", dir);
+	if (IS_ERR(profile->dents[i - 1]))
+		goto fail;
+	profile->dents[i++] = securityfs_create_file("name", S_IFREG | 0444,
+						     dir, profile->base.name,
+						     &aa_fs_seq_string_fops);
+	if (IS_ERR(profile->dents[i - 1]))
+		goto fail;
+	profile->dents[i++] = securityfs_create_file("mode", S_IFREG | 0444,
+						     dir, &profile->mode,
+						     &aa_fs_seq_mode_fops);
+	if (IS_ERR(profile->dents[i - 1]))
+		goto fail;
+
+	list_for_each_entry(child, &profile->base.profiles, base.list) {
+		error = __aa_fs_profile_mkdir(child, profile->dents[1]);
+		if (error)
+			goto fail2;
+	}
+
+	return 0;
+
+fail:
+	error = PTR_ERR(profile->dents[i - 1]);
+	profile->dents[i - 1] = NULL;
+
+fail2:
+	__aa_fs_profile_rmdir(profile);
+
+	return error;
+}
+
+void __aa_fs_namespace_rmdir(struct aa_namespace *ns)
+{
+	struct aa_namespace *sub;
+	struct aa_profile *child;
+	int i;
+
+	list_for_each_entry(child, &ns->base.profiles, base.list)
+		__aa_fs_profile_rmdir(child);
+
+	list_for_each_entry(sub, &ns->sub_ns, base.list)
+		__aa_fs_namespace_rmdir(sub);
+
+	for (i = ARRAY_LEN(ns->dents) - 1; i >= 0 ; --i)
+		securityfs_remove(ns->dents[i]);
+}
+
+int __aa_fs_namespace_mkdir(struct aa_namespace *ns, struct dentry *parent)
+{
+	struct aa_namespace *sub;
+	struct aa_profile *child;
+	struct dentry *dir;
+	int error, i = 0;
+
+	ns->dents[i++] = securityfs_create_dir(ns->base.name, parent);
+	if (IS_ERR(ns->dents[i - 1]))
+		goto fail;
+	dir = ns->dents[0];
+
+	ns->dents[i++] = securityfs_create_dir("profiles", dir);
+	if (IS_ERR(ns->dents[i - 1]))
+		goto fail;
+	ns->dents[i++] = securityfs_create_dir("namespaces", dir);
+	if (IS_ERR(ns->dents[i - 1]))
+		goto fail;
+
+	list_for_each_entry(child, &ns->base.profiles, base.list) {
+		error = __aa_fs_profile_mkdir(child, ns->dents[1]);
+		if (error)
+			goto fail2;
+	}
+
+	list_for_each_entry(sub, &ns->sub_ns, base.list) {
+		error = __aa_fs_namespace_mkdir(sub, ns->dents[2]);
+		if (error)
+			goto fail2;
+	}
+
+	return 0;
+
+fail:
+	error = PTR_ERR(ns->dents[i - 1]);
+	ns->dents[i - 1] = NULL;
+
+fail2:
+	__aa_fs_namespace_rmdir(ns);
+
+	return error;
+}
+
+
+/** Base file system setup **/
 static struct aa_fs_entry aa_fs_entry_file[] = {
 	AA_FS_FILE_STRING("mask", "create read write exec append mmap_exec " \
 				  "link lock"),
@@ -207,6 +378,7 @@ static struct aa_fs_entry aa_fs_entry_features[] = {
 };
 
 static struct aa_fs_entry aa_fs_entry_apparmor[] = {
+	AA_FS_DIR("policy", NULL),	/* don't move see aacreate_aafs */
 	AA_FS_FILE_FOPS(".load", 0640, &aa_fs_profile_load),
 	AA_FS_FILE_FOPS(".replace", 0640, &aa_fs_profile_replace),
 	AA_FS_FILE_FOPS(".remove", 0640, &aa_fs_profile_remove),
@@ -214,8 +386,10 @@ static struct aa_fs_entry aa_fs_entry_apparmor[] = {
 	{ }
 };
 
-static struct aa_fs_entry aa_fs_entry =
-	AA_FS_DIR("apparmor", aa_fs_entry_apparmor);
+static struct aa_fs_entry aa_fs_entry[] = {
+	AA_FS_DIR("apparmor", aa_fs_entry_apparmor),
+	{ }
+};
 
 /**
  * aafs_create_file - create a file entry in the apparmor securityfs
@@ -240,6 +414,7 @@ static int __init aafs_create_file(struct aa_fs_entry *fs_file,
 	return error;
 }
 
+static void __init aafs_remove_dir(struct aa_fs_entry *fs_dir);
 /**
  * aafs_create_dir - recursively create a directory entry in the securityfs
  * @fs_dir: aa_fs_entry (and all child entries) to build (NOT NULL)
@@ -250,17 +425,16 @@ static int __init aafs_create_file(struct aa_fs_entry *fs_file,
 static int __init aafs_create_dir(struct aa_fs_entry *fs_dir,
 				  struct dentry *parent)
 {
-	int error;
 	struct aa_fs_entry *fs_file;
+	struct dentry *dir;
+	int error;
 
-	fs_dir->dentry = securityfs_create_dir(fs_dir->name, parent);
-	if (IS_ERR(fs_dir->dentry)) {
-		error = PTR_ERR(fs_dir->dentry);
-		fs_dir->dentry = NULL;
-		goto failed;
-	}
+	dir = securityfs_create_dir(fs_dir->name, parent);
+	if (IS_ERR(dir))
+		return PTR_ERR(dir);
+	fs_dir->dentry = dir;
 
-	for (fs_file = fs_dir->v.files; fs_file->name; ++fs_file) {
+	for (fs_file = fs_dir->v.files; fs_file && fs_file->name; ++fs_file) {
 		if (fs_file->v_type == AA_FS_TYPE_DIR)
 			error = aafs_create_dir(fs_file, fs_dir->dentry);
 		else
@@ -272,6 +446,8 @@ static int __init aafs_create_dir(struct aa_fs_entry *fs_dir,
 	return 0;
 
 failed:
+	aafs_remove_dir(fs_dir);
+
 	return error;
 }
 
@@ -296,7 +472,7 @@ static void __init aafs_remove_dir(struct aa_fs_entry *fs_dir)
 {
 	struct aa_fs_entry *fs_file;
 
-	for (fs_file = fs_dir->v.files; fs_file->name; ++fs_file) {
+	for (fs_file = fs_dir->v.files; fs_file && fs_file->name; ++fs_file) {
 		if (fs_file->v_type == AA_FS_TYPE_DIR)
 			aafs_remove_dir(fs_file);
 		else
@@ -313,7 +489,7 @@ static void __init aafs_remove_dir(struct aa_fs_entry *fs_dir)
  */
 void __init aa_destroy_aafs(void)
 {
-	aafs_remove_dir(&aa_fs_entry);
+	aafs_remove_dir(aa_fs_entry);
 }
 
 /**
@@ -330,13 +506,17 @@ static int __init aa_create_aafs(void)
 	if (!apparmor_initialized)
 		return 0;
 
-	if (aa_fs_entry.dentry) {
+	if (aa_fs_entry[0].dentry) {
 		AA_ERROR("%s: AppArmor securityfs already exists\n", __func__);
 		return -EEXIST;
 	}
 
 	/* Populate fs tree. */
-	error = aafs_create_dir(&aa_fs_entry, NULL);
+	error = aafs_create_dir(aa_fs_entry, NULL);
+	if (error)
+		goto error;
+
+	error = __aa_fs_namespace_mkdir(root_ns, aa_fs_entry_apparmor[0].dentry);
 	if (error)
 		goto error;
 

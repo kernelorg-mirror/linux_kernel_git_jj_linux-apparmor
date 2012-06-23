@@ -293,6 +293,7 @@ static struct aa_namespace *alloc_namespace(const char *prefix,
 		goto fail_unconfined;
 
 	ns->unconfined->sid = aa_alloc_sid();
+	sprintf(ns->unconfined->sidstr, "%x", ns->unconfined->sid);
 	ns->unconfined->flags = PFLAG_UNCONFINED | PFLAG_IX_ON_NAME_ERROR |
 	    PFLAG_IMMUTABLE;
 
@@ -421,6 +422,13 @@ static struct aa_namespace *aa_prepare_namespace(const char *name)
 			list_add(&new_ns->base.list, &root->sub_ns);
 			/* add list ref */
 			ns = aa_get_namespace(new_ns);
+
+			/* Fixme: deal with failure */
+			if (__aa_fs_namespace_mkdir(new_ns,
+						    new_ns->parent->dents[1]))
+				AA_ERROR("Added namespace %s but failed to "
+					 "add interface files.\n",
+					 new_ns->base.name);
 		} else {
 			/* raced so free the new one */
 			free_namespace(new_ns);
@@ -498,6 +506,7 @@ static void __replace_profile(struct aa_profile *old, struct aa_profile *new)
 	new->parent = aa_get_profile(old->parent);
 	new->ns = aa_get_namespace(old->ns);
 	new->sid = old->sid;
+	strcpy(new->sidstr, old->sidstr);
 	__list_add_profile(&policy->profiles, new);
 	/* inherit children */
 	list_for_each_entry_safe(child, tmp, &old->base.profiles, base.list) {
@@ -691,6 +700,7 @@ struct aa_profile *aa_new_null_profile(struct aa_profile *parent, int hat)
 		goto fail;
 
 	profile->sid = sid;
+	sprintf(profile->sidstr, "%x", sid);
 	profile->mode = APPARMOR_COMPLAIN;
 	profile->flags = PFLAG_NULL;
 	if (hat)
@@ -951,6 +961,7 @@ static void __add_new_profile(struct aa_namespace *ns, struct aa_policy *policy,
 	__list_add_profile(&policy->profiles, profile);
 	/* released on free_profile */
 	profile->sid = aa_alloc_sid();
+	sprintf(profile->sidstr, "%x", profile->sid);
 	profile->ns = aa_get_namespace(ns);
 }
 
@@ -1086,8 +1097,10 @@ audit:
 	error = audit_policy(op, GFP_ATOMIC, name, info, error);
 
 	if (!error) {
-		if (rename_profile)
+		if (rename_profile) {
 			__replace_profile(rename_profile, new_profile);
+			__aa_fs_profile_rmdir(rename_profile);
+		}
 		if (old_profile) {
 			/* when there are both rename and old profiles
 			 * inherit old profiles sid
@@ -1095,9 +1108,22 @@ audit:
 			if (rename_profile)
 				aa_free_sid(new_profile->sid);
 			__replace_profile(old_profile, new_profile);
+			__aa_fs_profile_rmdir(old_profile);
 		}
 		if (!(old_profile || rename_profile))
 			__add_new_profile(ns, policy, new_profile);
+
+		/* fix me currently can fail, but old policy is replaced with
+		 * new. We do not want to fail the replacement at this
+		 * point. Problem can't create files & dirs that already
+		 * exist so maybe transfer them?
+		 */
+		if (__aa_fs_profile_mkdir(new_profile,
+					  new_profile->parent ?
+					  new_profile->parent->dents[1] :
+					  new_profile->ns->dents[1]))
+			AA_ERROR("added profile %s but failed to add "
+				 "interface files.\n", new_profile->base.name);
 	}
 	write_unlock(&ns->lock);
 
@@ -1162,6 +1188,7 @@ ssize_t aa_remove_profiles(char *fqname, size_t size)
 		/* remove namespace - can only happen if fqname[0] == ':' */
 		write_lock(&ns->parent->lock);
 		__remove_namespace(ns);
+		__aa_fs_namespace_rmdir(ns);
 		write_unlock(&ns->parent->lock);
 	} else {
 		/* remove profile */
@@ -1174,6 +1201,7 @@ ssize_t aa_remove_profiles(char *fqname, size_t size)
 		}
 		name = profile->base.hname;
 		__remove_profile(profile);
+		__aa_fs_profile_rmdir(profile);
 		write_unlock(&ns->lock);
 	}
 

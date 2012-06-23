@@ -15,6 +15,8 @@
 #ifndef __AA_APPARMORFS_H
 #define __AA_APPARMORFS_H
 
+#define ARRAY_LEN(ARRAY) (sizeof(ARRAY)/sizeof(*(ARRAY)))
+
 enum aa_fs_type {
 	AA_FS_TYPE_BOOLEAN,
 	AA_FS_TYPE_STRING,
@@ -60,5 +62,13 @@ extern const struct file_operations aa_fs_seq_file_ops;
 	{ .name = (_name), .v_type = AA_FS_TYPE_DIR, .v.files = (_value) }
 
 extern void __init aa_destroy_aafs(void);
+
+struct aa_profile;
+struct aa_namespace;
+
+void __aa_fs_profile_rmdir(struct aa_profile *profile);
+int __aa_fs_profile_mkdir(struct aa_profile *profile, struct dentry *parent);
+void __aa_fs_namespace_rmdir(struct aa_namespace *ns);
+int __aa_fs_namespace_mkdir(struct aa_namespace *ns, struct dentry *parent);
 
 #endif /* __AA_APPARMORFS_H */

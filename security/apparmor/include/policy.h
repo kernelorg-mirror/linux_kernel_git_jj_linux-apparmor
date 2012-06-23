@@ -105,6 +105,7 @@ struct aa_ns_acct {
  * @acct: accounting for the namespace
  * @unconfined: special unconfined profile for the namespace
  * @sub_ns: list of namespaces under the current namespace.
+ * @dents: dentries for the namespaces file entries in apparmorfs
  *
  * An aa_namespace defines the set profiles that are searched to determine
  * which profile to attach to a task.  Profiles can not be shared between
@@ -127,6 +128,8 @@ struct aa_namespace {
 	struct aa_ns_acct acct;
 	struct aa_profile *unconfined;
 	struct list_head sub_ns;
+
+	struct dentry *dents[3];
 };
 
 /* struct aa_policydb - match engine for a policy
@@ -158,6 +161,9 @@ struct aa_policydb {
  * @file: The set of rules governing basic file access and domain transitions
  * @caps: capabilities for the profile
  * @rlimits: rlimits for the profile
+ *
+ * @dents: dentries for the profiles file entries in apparmorfs
+ * @sidstr: hex string representation of the sid
  *
  * The AppArmor profile contains the basic confinement data.  Each profile
  * has a name, and exists in a namespace.  The @name and @exec_match are
@@ -195,7 +201,11 @@ struct aa_profile {
 	struct aa_file_rules file;
 	struct aa_caps caps;
 	struct aa_rlimit rlimits;
+
+	struct dentry *dents[4];
+	char sidstr[9];
 };
+
 
 extern struct aa_namespace *root_ns;
 extern enum profile_mode aa_g_profile_mode;
