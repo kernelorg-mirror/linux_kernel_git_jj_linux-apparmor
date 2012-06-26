@@ -17,6 +17,8 @@
 
 #include <net/sock.h>
 
+#define AA_SOCK_KERN 0xAA
+
 /* struct aa_net - network confinement data
  * @allowed: basic network families permissions
  * @audit_network: which network permissions to force audit
