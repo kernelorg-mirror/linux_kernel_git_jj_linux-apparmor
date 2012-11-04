@@ -443,6 +443,7 @@ int apparmor_bprm_set_creds(struct linux_binprm *bprm)
 			} else {
 				error = -ENOENT;
 				info = "profile not found";
+				perms.allow &= ~MAY_EXEC;
 			}
 		}
 	} else if (COMPLAIN_MODE(profile)) {
