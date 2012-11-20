@@ -116,6 +116,8 @@ static inline size_t table_size(size_t len, size_t el_size)
 	return ALIGN(sizeof(struct table_header) + len * el_size, 8);
 }
 
+#define MATCH_FLAG_DIFF_ENCODE 0x80000000
+
 struct aa_dfa *aa_dfa_unpack(void *blob, size_t size, int flags);
 unsigned int aa_dfa_match_len(struct aa_dfa *dfa, unsigned int start,
 			      const char *str, int len);

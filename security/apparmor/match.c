@@ -154,6 +154,8 @@ static int verify_dfa(struct aa_dfa *dfa, int flags)
 		}
 	}
 
+	/* TODO: verify diff encode terminates */
+
 	error = 0;
 out:
 	return error;
@@ -281,6 +283,22 @@ fail:
 	return ERR_PTR(error);
 }
 
+#define match_char(state, def, base, next, check, C) \
+do { \
+	for (;;) { \
+		unsigned int pos = base_idx((base)[(state)]) + (C); \
+		if ((check)[pos] == (state)) { \
+			(state) = (next)[pos]; \
+		} else { \
+			bool isdiff = (base)[(state)] & MATCH_FLAG_DIFF_ENCODE;\
+			(state) = (def)[(state)]; \
+			if (isdiff) \
+				continue; \
+		} \
+		break; \
+	} \
+} while (0)
+
 /**
  * aa_dfa_match_len - traverse @dfa to find state @str stops at
  * @dfa: the dfa to match @str against  (NOT NULL)
@@ -304,7 +322,7 @@ unsigned int aa_dfa_match_len(struct aa_dfa *dfa, unsigned int start,
 	u32 *base = BASE_TABLE(dfa);
 	u16 *next = NEXT_TABLE(dfa);
 	u16 *check = CHECK_TABLE(dfa);
-	unsigned int state = start, pos;
+	unsigned int state = start;
 
 	if (state == 0)
 		return 0;
@@ -313,23 +331,13 @@ unsigned int aa_dfa_match_len(struct aa_dfa *dfa, unsigned int start,
 	if (dfa->tables[YYTD_ID_EC]) {
 		/* Equivalence class table defined */
 		u8 *equiv = EQUIV_TABLE(dfa);
-		/* default is direct to next state */
-		for (; len; len--) {
-			pos = base_idx(base[state]) + equiv[(u8) *str++];
-			if (check[pos] == state)
-				state = next[pos];
-			else
-				state = def[state];
-		}
+		for (; len; len--)
+			match_char(state, def, base, next, check,
+				   equiv[(u8) *str++]);
 	} else {
 		/* default is direct to next state */
-		for (; len; len--) {
-			pos = base_idx(base[state]) + (u8) *str++;
-			if (check[pos] == state)
-				state = next[pos];
-			else
-				state = def[state];
-		}
+		for (; len; len--)
+			match_char(state, def, base, next, check, (u8) *str++);
 	}
 
 	return state;
@@ -354,7 +362,7 @@ unsigned int aa_dfa_match(struct aa_dfa *dfa, unsigned int start,
 	u32 *base = BASE_TABLE(dfa);
 	u16 *next = NEXT_TABLE(dfa);
 	u16 *check = CHECK_TABLE(dfa);
-	unsigned int state = start, pos;
+	unsigned int state = start;
 
 	if (state == 0)
 		return 0;
@@ -364,22 +372,13 @@ unsigned int aa_dfa_match(struct aa_dfa *dfa, unsigned int start,
 		/* Equivalence class table defined */
 		u8 *equiv = EQUIV_TABLE(dfa);
 		/* default is direct to next state */
-		while (*str) {
-			pos = base_idx(base[state]) + equiv[(u8) *str++];
-			if (check[pos] == state)
-				state = next[pos];
-			else
-				state = def[state];
-		}
+		while (*str)
+			match_char(state, def, base, next, check,
+				   equiv[(u8) *str++]);
 	} else {
 		/* default is direct to next state */
-		while (*str) {
-			pos = base_idx(base[state]) + (u8) *str++;
-			if (check[pos] == state)
-				state = next[pos];
-			else
-				state = def[state];
-		}
+		while (*str)
+			match_char(state, def, base, next, check, (u8) *str++);
 	}
 
 	return state;
@@ -402,27 +401,14 @@ unsigned int aa_dfa_next(struct aa_dfa *dfa, unsigned int state,
 	u32 *base = BASE_TABLE(dfa);
 	u16 *next = NEXT_TABLE(dfa);
 	u16 *check = CHECK_TABLE(dfa);
-	unsigned int pos;
 
 	/* current state is <state>, matching character *str */
 	if (dfa->tables[YYTD_ID_EC]) {
 		/* Equivalence class table defined */
 		u8 *equiv = EQUIV_TABLE(dfa);
-		/* default is direct to next state */
-
-		pos = base_idx(base[state]) + equiv[(u8) c];
-		if (check[pos] == state)
-			state = next[pos];
-		else
-			state = def[state];
-	} else {
-		/* default is direct to next state */
-		pos = base_idx(base[state]) + (u8) c;
-		if (check[pos] == state)
-			state = next[pos];
-		else
-			state = def[state];
-	}
+		match_char(state, def, base, next, check, equiv[(u8) c]);
+	} else
+		match_char(state, def, base, next, check, (u8) c);
 
 	return state;
 }
