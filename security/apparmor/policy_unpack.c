@@ -62,6 +62,7 @@ struct aa_ext {
 	void *start;
 	void *end;
 	void *pos;		/* pointer to current position in the buffer */
+	size_t adj;
 	u32 version;
 };
 
@@ -334,7 +335,7 @@ static struct aa_dfa *unpack_dfa(struct aa_ext *e)
 		 * The dfa is aligned with in the blob to 8 bytes
 		 * from the beginning of the stream.
 		 */
-		size_t sz = blob - (char *)e->start;
+		size_t sz = blob - (char *) e->start - e->adj;
 		size_t pad = ALIGN(sz, 8) - sz;
 		int flags = TO_ACCEPT1_FLAG(YYTD_DATA32) |
 			TO_ACCEPT2_FLAG(YYTD_DATA32);
@@ -622,29 +623,39 @@ fail:
 /**
  * verify_head - unpack serialized stream header
  * @e: serialized data read head (NOT NULL)
+ * @required: whether the header is required or optional
  * @ns: Returns - namespace if one is specified else NULL (NOT NULL)
  *
  * Returns: error or 0 if header is good
  */
-static int verify_header(struct aa_ext *e, const char **ns)
+static int verify_header(struct aa_ext *e, int required, const char **ns)
 {
 	int error = -EPROTONOSUPPORT;
+	const char *name = NULL;
+
 	/* get the interface version */
 	if (!unpack_u32(e, &e->version, "version")) {
-		audit_iface(NULL, NULL, "invalid profile format", e, error);
-		return error;
+		if (required) {
+			audit_iface(NULL, NULL, "invalid profile format", e, error);
+			return error;
+		}
+
+		/* check that the interface version is currently supported */
+		if (e->version != 5) {
+			audit_iface(NULL, NULL, "unsupported interface version",
+				    e, error);
+			return error;
+		}
 	}
 
-	/* check that the interface version is currently supported */
-	if (e->version != 5) {
-		audit_iface(NULL, NULL, "unsupported interface version", e,
-			    error);
-		return error;
-	}
 
 	/* read the namespace if present */
-	if (!unpack_str(e, ns, "namespace"))
-		*ns = NULL;
+	if (unpack_str(e, &name, "namespace")) {
+		if (*ns && strcmp(*ns, name)) {
+			audit_iface(NULL, NULL, "invalide ns change", e, error);
+		} else if (!*ns)
+			*ns = name;
+	}
 
 	return 0;
 }
@@ -694,18 +705,21 @@ static int verify_profile(struct aa_profile *profile)
 }
 
 /**
- * aa_unpack - unpack packed binary profile data loaded from user space
+ * aa_unpack - unpack packed binary profile(s) data loaded from user space
  * @udata: user data copied to kmem  (NOT NULL)
  * @size: the size of the user data
+ * @lh: list to place unpacked profiles in a aa_repl_ws
  * @ns: Returns namespace profile is in if specified else NULL (NOT NULL)
  *
- * Unpack user data and return refcounted allocated profile or ERR_PTR
+ * Unpack user data and return refcounted allocated profile(s) stored in
+ * @lh in order of discovery, with the list chain stored in base.list
+ * or error
  *
- * Returns: profile else error pointer if fails to unpack
+ * Returns: profile(s) on @lh else error pointer if fails to unpack
  */
-struct aa_profile *aa_unpack(void *udata, size_t size, const char **ns)
+int aa_unpack(void *udata, size_t size, struct list_head *lh, const char **ns)
 {
-	struct aa_profile *profile = NULL;
+	struct aa_profile *tmp, *profile = NULL;
 	int error;
 	struct aa_ext e = {
 		.start = udata,
@@ -713,20 +727,37 @@ struct aa_profile *aa_unpack(void *udata, size_t size, const char **ns)
 		.pos = udata,
 	};
 
-	error = verify_header(&e, ns);
-	if (error)
-		return ERR_PTR(error);
+	*ns = NULL;
+	while (e.pos < e.end) {
+		error = verify_header(&e, e.pos == e.start, ns);
+		if (error)
+			return error;
 
-	profile = unpack_profile(&e);
-	if (IS_ERR(profile))
-		return profile;
+		/* alignment adjust needed by dfa unpack */
+		e.adj = (e.pos - e.start) & 7;
+		profile = unpack_profile(&e);
+		if (IS_ERR(profile)) {
+			error = PTR_ERR(profile);
+			goto fail;
+		}
 
-	error = verify_profile(profile);
-	if (error) {
-		aa_put_profile(profile);
-		profile = ERR_PTR(error);
+		error = verify_profile(profile);
+		if (error) {
+			aa_put_profile(profile);
+			goto fail;
+		}
+
+		/* transfer refcount to list */
+		list_add_tail(&profile->base.list, lh);
 	}
 
-	/* return refcount */
-	return profile;
+	return 0;
+
+fail:
+	list_for_each_entry_safe(profile, tmp, lh, base.list) {
+			list_del_init(&profile->base.list);
+			aa_put_profile(profile);
+	}
+
+	return error;
 }

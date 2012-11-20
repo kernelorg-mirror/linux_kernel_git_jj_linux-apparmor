@@ -494,9 +494,6 @@ static void __replace_profile(struct aa_profile *old, struct aa_profile *new)
 	else
 		policy = &old->ns->base;
 
-	/* released when @new is freed */
-	new->parent = aa_get_profile(old->parent);
-	new->ns = aa_get_namespace(old->ns);
 	__list_add_profile(&policy->profiles, new);
 	/* inherit children */
 	list_for_each_entry_safe(child, tmp, &old->base.profiles, base.list) {
@@ -953,25 +950,6 @@ static int replacement_allowed(struct aa_profile *profile, int noreplace,
 }
 
 /**
- * __add_new_profile - simple wrapper around __list_add_profile
- * @ns: namespace that profile is being added to  (NOT NULL)
- * @policy: the policy container to add the profile to  (NOT NULL)
- * @profile: profile to add  (NOT NULL)
- *
- * add a profile to a list and do other required basic allocations
- */
-static void __add_new_profile(struct aa_namespace *ns, struct aa_policy *policy,
-			      struct aa_profile *profile)
-{
-	if (policy != &ns->base)
-		/* released on profile replacement or free_profile */
-		profile->parent = aa_get_profile((struct aa_profile *) policy);
-	__list_add_profile(&policy->profiles, profile);
-	/* released on free_profile */
-	profile->ns = aa_get_namespace(ns);
-}
-
-/**
  * aa_audit_policy - Do auditing of policy changes
  * @op: policy operation being performed
  * @gfp: memory allocation flags
@@ -1020,6 +998,64 @@ bool aa_may_manage_policy(int op)
 }
 
 /**
+ * __lookup_replace - lookup replacement information for a profile
+ * @ns - namespace the lookup occurs in
+ * @new - profile to lookup who it is replacing
+ * @noreplace - true if not replacing an existing profile
+ * @old - Returns: pointer to profile to replace (NO REFCOUNT)
+ * @rename - Returns: pointer to profile to rename (NO REFCOUNT)
+ * @info - Returns: info string on why lookup failed
+ *
+ * Returns: policy (no ref) profile is in on success else ptr error
+ */
+static struct aa_policy *__lookup_replace(struct aa_namespace *ns,
+					  struct aa_profile *new,
+					  bool noreplace,
+					  struct aa_profile **r_old,
+					  struct aa_profile **r_rename,
+					  const char **info)
+{
+	struct aa_profile *old, *rename = NULL;
+	struct aa_policy *policy;
+	ssize_t error;
+
+	/* no ref on policy only use inside lock */
+	policy = __lookup_parent(ns, new->base.hname);
+	/* FIXME: currently fails when doing an atomic load of multiple
+	 * profiles for children profiles when the parent is being added
+	 * as a new profile
+	 */
+	if (!policy) {
+		*info = "parent does not exist";
+		return ERR_PTR(-ENOENT);
+	}
+
+	old = __find_child(&policy->profiles, new->base.name);
+	error = replacement_allowed(old, noreplace, info);
+	if (error)
+		return ERR_PTR(error);
+
+	if (new->rename) {
+		rename = __lookup_profile(&ns->base, new->rename);
+		if (!rename) {
+			*info = "profile to rename does not exist";
+			return ERR_PTR(-ENOENT);
+		}
+
+		error = replacement_allowed(rename, noreplace, info);
+		if (error)
+			return ERR_PTR(error);
+	}
+
+	if (r_old)
+		*r_old = aa_get_profile(old);
+	if (r_rename)
+		*r_rename = aa_get_profile(rename);
+
+	return policy;
+}
+
+/**
  * aa_replace_profiles - replace profile(s) on the profile list
  * @udata: serialized data stream  (NOT NULL)
  * @size: size of the serialized data stream
@@ -1033,21 +1069,18 @@ bool aa_may_manage_policy(int op)
  */
 ssize_t aa_replace_profiles(void *udata, size_t size, bool noreplace)
 {
-	struct aa_policy *policy;
-	struct aa_profile *old_profile = NULL, *new_profile = NULL;
-	struct aa_profile *rename_profile = NULL;
-	struct aa_namespace *ns = NULL;
 	const char *ns_name, *name = NULL, *info = NULL;
+	struct aa_namespace *ns = NULL;
+	struct aa_profile *new, *tmp;
+	struct aa_policy *policy;
 	int op = OP_PROF_REPL;
 	ssize_t error;
+	LIST_HEAD(lh);
 
 	/* released below */
-	new_profile = aa_unpack(udata, size, &ns_name);
-	if (IS_ERR(new_profile)) {
-		error = PTR_ERR(new_profile);
-		new_profile = NULL;
-		goto fail;
-	}
+	error = aa_unpack(udata, size, &lh, &ns_name);
+	if (error)
+		goto out;
 
 	/* released below */
 	ns = aa_prepare_namespace(ns_name);
@@ -1058,71 +1091,63 @@ ssize_t aa_replace_profiles(void *udata, size_t size, bool noreplace)
 		goto fail;
 	}
 
-	name = new_profile->base.hname;
-
 	write_lock(&ns->lock);
-	/* no ref on policy only use inside lock */
-	policy = __lookup_parent(ns, new_profile->base.hname);
-
-	if (!policy) {
-		info = "parent does not exist";
-		error = -ENOENT;
-		goto audit;
-	}
-
-	old_profile = __find_child(&policy->profiles, new_profile->base.name);
-	/* released below */
-	aa_get_profile(old_profile);
-
-	if (new_profile->rename) {
-		rename_profile = __lookup_profile(&ns->base,
-						  new_profile->rename);
-		/* released below */
-		aa_get_profile(rename_profile);
-
-		if (!rename_profile) {
-			info = "profile to rename does not exist";
-			name = new_profile->rename;
-			error = -ENOENT;
-			goto audit;
+	/* test to see if replacement can be done without failure */
+	list_for_each_entry(new, &lh, base.list) {
+		policy = __lookup_replace(ns, new, noreplace, NULL, NULL,
+					  &info);
+		if (IS_ERR(policy)) {
+			write_unlock(&ns->lock);
+			error = PTR_ERR(policy);
+			name = new->base.hname;
+			goto fail;
 		}
+		/* released when @new is freed */
+		new->ns = aa_get_namespace(ns);
+		if (policy != &ns->base)
+			/* released on profile replacement or free_profile */
+			new->parent = aa_get_profile((struct aa_profile *) policy);
 	}
 
-	error = replacement_allowed(old_profile, noreplace, &info);
-	if (error)
-		goto audit;
+	/* do actual replacement */
+	list_for_each_entry_safe(new, tmp, &lh, base.list) {
+		struct aa_profile *old, *rename;
 
-	error = replacement_allowed(rename_profile, noreplace, &info);
-	if (error)
-		goto audit;
+		list_del_init(&new->base.list);
+		policy = __lookup_replace(ns, new, noreplace, &old, &rename,
+					  &info);
+		op = (!old && !rename) ? OP_PROF_LOAD : OP_PROF_REPL;
 
-audit:
-	if (!old_profile && !rename_profile)
-		op = OP_PROF_LOAD;
+		audit_policy(op, GFP_ATOMIC, new->base.name, NULL, error);
 
-	error = audit_policy(op, GFP_ATOMIC, name, info, error);
+		if (rename)
+			__replace_profile(rename, new);
+		if (old)
+			__replace_profile(old, new);
+		if (!(old || rename))
+			__list_add_profile(&policy->profiles, new);
 
-	if (!error) {
-		if (rename_profile)
-			__replace_profile(rename_profile, new_profile);
-		if (old_profile)
-			__replace_profile(old_profile, new_profile);
-		if (!(old_profile || rename_profile))
-			__add_new_profile(ns, policy, new_profile);
+		aa_put_profile(rename);
+		aa_put_profile(old);
+		aa_put_profile(new);
 	}
 	write_unlock(&ns->lock);
 
 out:
 	aa_put_namespace(ns);
-	aa_put_profile(rename_profile);
-	aa_put_profile(old_profile);
-	aa_put_profile(new_profile);
+
 	if (error)
 		return error;
 	return size;
 
 fail:
 	error = audit_policy(op, GFP_KERNEL, name, info, error);
+
+	list_for_each_entry_safe(new, tmp, &lh, base.list) {
+		list_del_init(&new->base.list);
+		aa_put_profile(new);
+	}
+
 	goto out;
 }
 
