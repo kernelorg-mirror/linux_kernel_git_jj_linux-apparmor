@@ -144,7 +144,7 @@ static struct aa_profile *__attach_match(const char *name,
 	int len = 0;
 	struct aa_profile *profile, *candidate = NULL;
 
-	list_for_each_entry(profile, head, base.list) {
+	list_for_each_entry_rcu(profile, head, base.list) {
 		if (profile->flags & PFLAG_NULL)
 			continue;
 		if (profile->xmatch && profile->xmatch_len > len) {
@@ -177,9 +177,9 @@ static struct aa_profile *find_attach(struct aa_namespace *ns,
 {
 	struct aa_profile *profile;
 
-	read_lock(&ns->lock);
+	rcu_read_lock();
 	profile = aa_get_profile(__attach_match(name, list));
-	read_unlock(&ns->lock);
+	rcu_read_unlock();
 
 	return profile;
 }
@@ -648,7 +648,7 @@ int aa_change_hat(const char *hats[], int count, u64 token, bool permtest)
 			hat = aa_find_child(root, hats[i]);
 		if (!hat) {
 			if (!COMPLAIN_MODE(root) || permtest) {
-				if (list_empty(&root->base.profiles))
+				if (list_empty_rcu(&root->base.profiles))
 					error = -ECHILD;
 				else
 					error = -ENOENT;

@@ -754,6 +754,11 @@ int aa_unpack(void *udata, size_t size, struct list_head *lh, const char **ns)
 	return 0;
 
 fail:
+	/*
+	 * outside references to the list of profiles are not possible
+	 * as they have not been added to the global list yet, so rcu
+	 * is not necessary
+	 */
 	list_for_each_entry_safe(profile, tmp, lh, base.list) {
 			list_del_init(&profile->base.list);
 			aa_put_profile(profile);
