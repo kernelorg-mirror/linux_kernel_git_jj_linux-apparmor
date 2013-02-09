@@ -153,9 +153,6 @@ int aa_revalidate_sk(int op, struct sock *sk)
 	if (in_interrupt())
 		return 0;
 
-	if (sk->sk_security == (void *) AA_SOCK_KERN)
-		return 0;
-
 	profile = __aa_current_profile();
 	if (!unconfined(profile))
 		error = aa_net_perm(op, profile, sk->sk_family, sk->sk_type,

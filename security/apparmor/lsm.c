@@ -685,16 +685,6 @@ static int apparmor_socket_create(int family, int type, int protocol, int kern)
 	return error;
 }
 
-static int apparmor_socket_post_create(struct socket *sock, int family,
-				       int type, int protocol, int kern)
-{
-	if (kern)
-		/* tag kernel sockets so we don't mediate them later */
-		sock->sk->sk_security = (void *) AA_SOCK_KERN;
-
-	return 0;
-}
-
 static int apparmor_socket_bind(struct socket *sock,
 				struct sockaddr *address, int addrlen)
 {
@@ -778,12 +768,6 @@ static int apparmor_socket_shutdown(struct socket *sock, int how)
 	return aa_revalidate_sk(OP_SOCK_SHUTDOWN, sk);
 }
 
-static void apparmor_sk_clone_security(const struct sock *sk,
-				       struct sock *newsk)
-{
-	newsk->sk_security = sk->sk_security;
-}
-
 static struct security_operations apparmor_ops = {
 	.name =				"apparmor",
 
@@ -821,7 +805,6 @@ static struct security_operations apparmor_ops = {
 	.setprocattr =			apparmor_setprocattr,
 
 	.socket_create =		apparmor_socket_create,
-	.socket_post_create =		apparmor_socket_post_create,
 	.socket_bind =			apparmor_socket_bind,
 	.socket_connect =		apparmor_socket_connect,
 	.socket_listen =		apparmor_socket_listen,
@@ -833,7 +816,6 @@ static struct security_operations apparmor_ops = {
 	.socket_getsockopt =		apparmor_socket_getsockopt,
 	.socket_setsockopt =		apparmor_socket_setsockopt,
 	.socket_shutdown =		apparmor_socket_shutdown,
-	.sk_clone_security =		apparmor_sk_clone_security,
 
 	.cred_alloc_blank =		apparmor_cred_alloc_blank,
 	.cred_free =			apparmor_cred_free,
