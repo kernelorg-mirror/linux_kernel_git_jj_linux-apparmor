@@ -186,6 +186,137 @@ static const struct file_operations aa_fs_profile_remove = {
 	.llseek = default_llseek,
 };
 
+/**
+ * query_label - queries a label and writes permissions to buf
+ * @buf: the resulting permissions string is stored here (NOT NULL)
+ * @buf_len: size of buf
+ * @query: binary query string to match against the dfa
+ * @query_len: size of query
+ *
+ * The buffers pointed to by buf and query may overlap. The query buffer is
+ * parsed before buf is written to.
+ *
+ * The query should look like "LABEL_NAME\0DFA_STRING" where LABEL_NAME is
+ * the name of the label, in the current namespace, that is to be queried and
+ * DFA_STRING is a binary string to match against the label(s)'s DFA.
+ *
+ * LABEL_NAME must be NUL terminated. DFA_STRING may contain NUL characters
+ * but must *not* be NUL terminated.
+ *
+ * Returns: number of characters written to buf or -errno on failure
+ */
+static ssize_t query_label(char *buf, size_t buf_len,
+			   char *query, size_t query_len)
+{
+	struct aa_profile *profile;
+	char *label_name, *match_str;
+	size_t label_name_len, match_len;
+	u32 allow = 0, audit = 0, quiet = 0;
+	unsigned int state;
+
+	if (!query_len)
+		return -EINVAL;
+
+	label_name = query;
+	label_name_len = strnlen(query, query_len);
+	if (!label_name_len || label_name_len == query_len)
+		return -EINVAL;
+
+	/**
+	 * The extra byte is to account for the null byte between the
+	 * profile name and dfa string. profile_name_len is greater
+	 * than zero and less than query_len, so a byte can be safely
+	 * added or subtracted.
+	 */
+	match_str = label_name + label_name_len + 1;
+	match_len = query_len - label_name_len - 1;
+
+	profile = aa_lookup_profile(aa_current_profile()->ns, label_name);
+	if (!profile)
+		return -ENOENT;
+
+	allow = 0xffffffff;
+	audit = quiet = 0x00000000;
+	if (profile->policy.dfa) {
+		state = aa_dfa_match_len(profile->policy.dfa,
+					 profile->policy.start[0],
+					 match_str, match_len);
+		if (!COMPLAIN_MODE(profile))
+			allow &= dfa_user_allow(profile->policy.dfa, state);
+		audit |= dfa_user_audit(profile->policy.dfa, state);
+		quiet |= dfa_user_quiet(profile->policy.dfa, state);
+
+	} else
+		/* TODO: do we want to accumulate audit/quiet
+		   or just clear as currently doing */
+		allow = audit = quiet = 0;
+	aa_put_profile(profile);
+
+	return scnprintf(buf, buf_len,
+		      "allow 0x%08x\ndeny 0x%08x\naudit 0x%08x\nquiet 0x%08x\n",
+		      allow, 0, audit, quiet);
+}
+
+#define QUERY_CMD_LABEL		"label\0"
+#define QUERY_CMD_LABEL_LEN	6
+#define QUERY_CMD_PROFILE	"profile\0"
+#define QUERY_CMD_PROFILE_LEN	8
+
+/**
+ * aa_write_access - generic permissions query
+ * @file: pointer to open apparmorfs/access file
+ * @ubuf: user buffer containing the complete query string (NOT NULL)
+ * @count: size of ubuf
+ * @ppos: position in the file (MUST BE ZERO)
+ *
+ * Allows for one permission query per open(), write(), and read() sequence.
+ * The only query currently supported is a label-based query. For this query
+ * ubuf must begin with "label\0", followed by the profile query specific
+ * format described in the query_label() function documentation.
+ *
+ * Returns: number of bytes written or -errno on failure
+ */
+static ssize_t aa_write_access(struct file *file, const char __user *ubuf,
+			       size_t count, loff_t *ppos)
+{
+	char *buf;
+	ssize_t len;
+
+	if (*ppos)
+		return -ESPIPE;
+
+	buf = simple_transaction_get(file, ubuf, count);
+	if (IS_ERR(buf))
+		return PTR_ERR(buf);
+
+	if (count > QUERY_CMD_PROFILE_LEN &&
+	    !memcmp(buf, QUERY_CMD_PROFILE, QUERY_CMD_PROFILE_LEN)) {
+		len = query_label(buf, SIMPLE_TRANSACTION_LIMIT,
+				  buf + QUERY_CMD_PROFILE_LEN,
+				  count - QUERY_CMD_PROFILE_LEN);
+	} else if (count > QUERY_CMD_LABEL_LEN &&
+		   !memcmp(buf, QUERY_CMD_LABEL, QUERY_CMD_LABEL_LEN)) {
+		len = query_label(buf, SIMPLE_TRANSACTION_LIMIT,
+				  buf + QUERY_CMD_LABEL_LEN,
+				  count - QUERY_CMD_LABEL_LEN);
+	} else
+		len = -EINVAL;
+
+	if (len < 0)
+		return len;
+
+	simple_transaction_set(file, len);
+
+	return count;
+}
+
+static const struct file_operations aa_fs_access = {
+	.write		= aa_write_access,
+	.read		= simple_transaction_read,
+	.release	= simple_transaction_release,
+	.llseek		= generic_file_llseek,
+};
+
 static int aa_fs_seq_show(struct seq_file *seq, void *v)
 {
 	struct aa_fs_entry *fs_file = seq->private;
@@ -816,6 +947,7 @@ static struct aa_fs_entry aa_fs_entry_apparmor[] = {
 	AA_FS_FILE_FOPS(".load", 0640, &aa_fs_profile_load),
 	AA_FS_FILE_FOPS(".replace", 0640, &aa_fs_profile_replace),
 	AA_FS_FILE_FOPS(".remove", 0640, &aa_fs_profile_remove),
+	AA_FS_FILE_FOPS(".access", 0666, &aa_fs_access),
 	AA_FS_FILE_FOPS("profiles", 0640, &aa_fs_profiles_fops),
 	AA_FS_DIR("features", aa_fs_entry_features),
 	{ }
