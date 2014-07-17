@@ -256,6 +256,16 @@ ssize_t aa_remove_profiles(char *name, size_t size);
 
 #define unconfined(X) ((X)->mode == APPARMOR_UNCONFINED)
 
+#define PROFILE_MEDIATES(P, T)  ((P)->policy.start[(T)])
+/* safe version of POLICY_MEDIATES for full range input */
+static inline unsigned int PROFILE_MEDIATES_SAFE(struct aa_profile *profile,
+						 unsigned char class)
+{
+	if (profile->policy.dfa)
+		return aa_dfa_match_len(profile->policy.dfa,
+					profile->policy.start[0], &class, 1);
+	return 0;
+}
 
 static inline struct aa_profile *aa_deref_parent(struct aa_profile *p)
 {
