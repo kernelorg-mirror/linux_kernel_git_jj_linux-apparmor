@@ -503,6 +503,41 @@ static struct aa_label *__aa_label_insert(struct aa_labelset *ls,
 }
 
 /**
+ * aa_label_insert - insert label @l into @ls or return existing label
+ * @ls - labelset to insert @l into
+ * @l - label to insert
+ *
+ * Requires: caller to hold a valid ref on l
+ *
+ * Returns: ref counted @l if successful in inserting @l
+ *     else ref counted equivalent label that is already in the set
+ */
+struct aa_label *aa_label_insert(struct aa_labelset *ls, struct aa_label *l)
+{
+	struct aa_label *label;
+	unsigned long flags;
+
+	AA_BUG(!ls);
+	AA_BUG(!l);
+
+	/* check if label exists before taking lock */
+	if (!label_invalid(l)) {
+		read_lock_irqsave(&ls->lock, flags);
+		label = aa_get_label(__aa_label_find(ls, l));
+		read_unlock_irqrestore(&ls->lock, flags);
+		labelstats_inc(fread);
+		if (label)
+			return label;
+	}
+
+	write_lock_irqsave(&ls->lock, flags);
+	label = __aa_label_insert(ls, l);
+	write_unlock_irqrestore(&ls->lock, flags);
+
+	return label;
+}
+
+/**
  * aa_update_label_name - update a label to have a stored name
  * @ns: ns being viewed from (NOT NULL)
  * @label: label to update (NOT NULL)
@@ -1030,40 +1065,6 @@ struct aa_label *aa_label_parse(struct aa_namespace *base, char *str, gfp_t gfp)
 fail:
 	aa_label_free(label);
 	return ERR_PTR(-ENOENT);
-}
-/**
- * aa_label_insert - insert label @l into @ls or return existing label
- * @ls - labelset to insert @l into
- * @l - label to insert
- *
- * Requires: caller to hold a valid ref on l
- *
- * Returns: ref counted @l if successful in inserting @l
- *     else ref counted equivalent label that is already in the set
- */
-struct aa_label *aa_label_insert(struct aa_labelset *ls, struct aa_label *l)
-{
-	struct aa_label *label;
-	unsigned long flags;
-
-	AA_BUG(!ls);
-	AA_BUG(!l);
-
-	/* check if label exists before taking lock */
-	if (!label_invalid(l)) {
-		read_lock_irqsave(&ls->lock, flags);
-		label = aa_get_label(__aa_label_find(ls, l));
-		read_unlock_irqrestore(&ls->lock, flags);
-		labelstats_inc(fread);
-		if (label)
-			return label;
-	}
-
-	write_lock_irqsave(&ls->lock, flags);
-	label = __aa_label_insert(ls, l);
-	write_unlock_irqrestore(&ls->lock, flags);
-
-	return label;
 }
 
 
