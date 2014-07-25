@@ -215,7 +215,7 @@ static ssize_t query_label(char *buf, size_t buf_len,
 	struct aa_label *label;
 	char *label_name, *match_str;
 	size_t label_name_len, match_len;
-	u32 allow = 0, audit = 0, quiet = 0;
+	struct aa_perms perms;
 	unsigned int state = 0;
 	struct label_it i;
 
@@ -240,10 +240,9 @@ static ssize_t query_label(char *buf, size_t buf_len,
 	if (IS_ERR(label))
 		return PTR_ERR(label);
 
-	allow = 0xffffffff;
-	audit = quiet = 0x00000000;
-
+	aa_perms_all(&perms);
 	label_for_each_confined(i, label, profile) {
+		struct aa_perms tmp;
 		struct aa_dfa *dfa;
 		if (profile->file.dfa && *match_str == AA_CLASS_FILE) {
 			dfa = profile->file.dfa;
@@ -256,23 +255,18 @@ static ssize_t query_label(char *buf, size_t buf_len,
 			state = aa_dfa_match_len(dfa, profile->policy.start[0],
 						 match_str, match_len);
 		}
-		if (state) {
-			if (!COMPLAIN_MODE(profile))
-				allow &= dfa_user_allow(dfa, state);
-			audit |= dfa_user_audit(dfa, state);
-			quiet |= dfa_user_quiet(dfa, state);
-		} else {
-			/* TODO: do we want to accumulate audit/quiet
-			   or just clear as currently doing */
-			allow = audit = quiet = 0;
-			break;
-		}
+		if (state)
+			aa_compute_perms(dfa, state, &tmp);
+		else
+			aa_perms_clear(&tmp);
+		aa_apply_modes_to_perms(profile, &tmp);
+		aa_perms_accum_raw(&perms, &tmp);
 	}
 	aa_put_label(label);
 
 	return scnprintf(buf, buf_len,
 		      "allow 0x%08x\ndeny 0x%08x\naudit 0x%08x\nquiet 0x%08x\n",
-		      allow, 0, audit, quiet);
+		      perms.allow, perms.deny, perms.audit, perms.quiet);
 }
 
 #define QUERY_CMD_LABEL		"label\0"
