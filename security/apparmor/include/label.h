@@ -197,7 +197,25 @@ bool aa_label_make_newest(struct aa_labelset *ls, struct aa_label *old,
 
 struct aa_label *aa_label_find(struct aa_labelset *ls, struct aa_label *l);
 
+bool aa_update_label_name(struct aa_namespace *ns, struct aa_label *label,
+			  gfp_t gfp);
 
+int aa_profile_snprint(char *str, size_t size, struct aa_namespace *ns,
+		       struct aa_profile *profile, bool mode);
+int aa_label_snprint(char *str, size_t size, struct aa_namespace *ns,
+		     struct aa_label *label, bool mode);
+int aa_label_asprint(char **strp, struct aa_namespace *ns,
+		     struct aa_label *label, bool mode, gfp_t gfp);
+int aa_label_acntsprint(char __counted **strp, struct aa_namespace *ns,
+			struct aa_label *label, bool mode, gfp_t gfp);
+void aa_label_audit(struct audit_buffer *ab, struct aa_namespace *ns,
+		    struct aa_label *label, bool mode, gfp_t gfp);
+void aa_label_seq_print(struct seq_file *f, struct aa_namespace *ns,
+			struct aa_label *label, bool mode, gfp_t gfp);
+void aa_label_printk(struct aa_namespace *ns, struct aa_label *label,
+		     bool mode, gfp_t gfp);
+struct aa_label *aa_label_parse(struct aa_namespace *base, char *str,
+				gfp_t gfp);
 
 static inline struct aa_label *aa_get_label(struct aa_label *l)
 {

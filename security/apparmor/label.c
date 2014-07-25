@@ -503,6 +503,535 @@ static struct aa_label *__aa_label_insert(struct aa_labelset *ls,
 }
 
 /**
+ * aa_update_label_name - update a label to have a stored name
+ * @ns: ns being viewed from (NOT NULL)
+ * @label: label to update (NOT NULL)
+ * @gfp: type of memory allocation
+ *
+ * Requires: labels_set(label) not locked in caller
+ *
+ * note: only updates the label name if it does not have a name already
+ *       and if it is in the labelset
+ */
+bool aa_update_label_name(struct aa_namespace *ns, struct aa_label *label,
+			  gfp_t gfp)
+{
+	struct aa_labelset *ls;
+	unsigned long flags;
+	char __counted *name;
+	bool res = false;
+
+	AA_BUG(!ns);
+	AA_BUG(!label);
+
+	if (label->hname || labels_ns(label) != ns)
+		return res;
+
+	if (aa_label_acntsprint(&name, ns, label, false, gfp) == -1)
+		return res;
+
+	ls = labels_set(label);
+	write_lock_irqsave(&ls->lock, flags);
+	if (!label->hname && label->flags & FLAG_IN_TREE) {
+		label->hname = name;
+		res = true;
+	} else
+		aa_put_str(name);
+	write_unlock_irqrestore(&ls->lock, flags);
+
+	return res;
+}
+
+/* cached label name is present and visible
+ * @label->hname only exists if label is namespace hierachical */
+static inline bool label_name_visible(struct aa_namespace *ns,
+				      struct aa_label *label)
+{
+	if (label->hname && labels_ns(label) == ns)
+		return true;
+
+	return false;
+}
+
+/* helper macro for snprint routines */
+#define update_for_len(total, len, size, str)	\
+do {					\
+	AA_BUG(len < 0);		\
+	total += len;			\
+	len = min(len, size);		\
+	size -= len;			\
+	str += len;			\
+} while (0)
+
+/**
+ * aa_modename_snprint - print the mode name of a profile or label to a buffer
+ * @str: buffer to write to (MAY BE NULL if @size == 0)
+ * @size: size of buffer
+ * @ns: namespace profile is being viewed from (NOT NULL)
+ * @label: label to print the mode of (NOT NULL)
+ *
+ * Returns: size of name written or would be written if larger than
+ *          available buffer
+ *
+ * Note: will print every mode name visible (mode1)(mode2)(mode3)
+ *       this is likely not what is desired for most interfaces
+ *       use aa_mode_snprint to get the standard mode format
+ */
+static int aa_modename_snprint(char *str, size_t size, struct aa_namespace *ns,
+			       struct aa_label *label)
+{
+	struct aa_profile *profile;
+	int i, total = 0;
+	size_t len;
+
+	label_for_each(i, label, profile) {
+		const char *modestr;
+		if (!aa_ns_visible(ns, profile->ns))
+			continue;
+		/* no mode for 'unconfined' */
+		if (profile_unconfined(profile) &&
+		    profile == profile->ns->unconfined)
+			break;
+		modestr = aa_profile_mode_names[profile->mode];
+		len = snprintf(str, size, "(%s)", modestr);
+		update_for_len(total, len, size, str);
+	}
+
+	return total;
+}
+
+/**
+ * aa_modechr_snprint - print the mode chr of a profile or labels to a buffer
+ * @str: buffer to write to (MAY BE NULL if @size == 0)
+ * @size: size of buffer
+ * @ns: namespace profile is being viewed from (NOT NULL)
+ * @label: label to print the mode chr of (NOT NULL)
+ *
+ * Returns: size of mode string written or would be written if larger than
+ *          available buffer
+ *
+ * Note: will print the chr of every visible profile (123)
+ *       this is likely not what is desired for most interfaces
+ *       use aa_mode_snprint to get the standard mode format
+ */
+static int aa_modechr_snprint(char *str, size_t size, struct aa_namespace *ns,
+			      struct aa_label *label)
+{
+	struct aa_profile *profile;
+	int i, total = 0;
+	size_t len;
+
+	len = snprintf(str, size, "(");
+	update_for_len(total, len, size, str);
+	label_for_each(i, label, profile) {
+		const char *modestr;
+		if (!aa_ns_visible(ns, profile->ns))
+			continue;
+		modestr = aa_profile_mode_names[profile->mode];
+		/* just the first char of the modestr */
+		len = snprintf(str, size, "%c", *modestr);
+		update_for_len(total, len, size, str);
+	}
+	len = snprintf(str, size, ")");
+	update_for_len(total, len, size, str);
+
+	return total;
+}
+
+/**
+ * aa_mode_snprint - print the mode of a profile or label to a buffer
+ * @str: buffer to write to (MAY BE NULL if @size == 0)
+ * @size: size of buffer
+ * @ns: namespace profile is being viewed from (NOT NULL)
+ * @label: label to print the mode of (NOT NULL)
+ * @count: number of label entries to be printed (<= 0 if unknown)
+ *
+ * Returns: size of name written or would be written if larger than
+ *          available buffer
+ *
+ * Note: dynamically switches between mode name, and mode char format as
+ *       appropriate
+ *       will not print anything if the label is not visible
+ */
+static int aa_mode_snprint(char *str, size_t size, struct aa_namespace *ns,
+			   struct aa_label *label, int count)
+{
+	struct aa_profile *profile;
+	int i;
+
+	if (count <= 0) {
+		count = 0;
+		label_for_each(i, label, profile) {
+			if (aa_ns_visible(ns, profile->ns))
+				count++;
+		}
+	}
+
+	if (count == 0)
+		return 0;
+
+	if (count == 1)
+		return aa_modename_snprint(str, size, ns, label);
+
+	return aa_modechr_snprint(str, size, ns, label);
+}
+
+/**
+ * aa_snprint_profile - print a profile name to a buffer
+ * @str: buffer to write to. (MAY BE NULL if @size == 0)
+ * @size: size of buffer
+ * @ns: namespace profile is being viewed from (NOT NULL)
+ * @profile: profile to view (NOT NULL)
+ * @mode: whether to include the mode string
+ *
+ * Returns: size of name written or would be written if larger than
+ *          available buffer
+ *
+ * Note: will not print anything if the profile is not visible
+ */
+int aa_profile_snprint(char *str, size_t size, struct aa_namespace *ns,
+		       struct aa_profile *profile, bool mode)
+{
+	const char *ns_name = aa_ns_name(ns, profile->ns);
+
+	AA_BUG(!str && size != 0);
+	AA_BUG(!ns);
+	AA_BUG(!profile);
+
+	if (!ns_name)
+		return 0;
+
+	if (mode && profile != profile->ns->unconfined) {
+		const char *modestr = aa_profile_mode_names[profile->mode];
+		if (strlen(ns_name))
+			return snprintf(str, size, ":%s://%s (%s)", ns_name,
+					profile->base.hname, modestr);
+		return snprintf(str, size, "%s (%s)", profile->base.hname,
+				modestr);
+	}
+
+	if (strlen(ns_name))
+		return snprintf(str, size, ":%s://%s", ns_name,
+				profile->base.hname);
+	return snprintf(str, size, "%s", profile->base.hname);
+}
+
+/**
+ * aa_label_snprint - print a label name to a string buffer
+ * @str: buffer to write to. (MAY BE NULL if @size == 0)
+ * @size: size of buffer
+ * @ns: namespace profile is being viewed from (NOT NULL)
+ * @label: label to view (NOT NULL)
+ * @mode: whether to include the mode string
+ *
+ * Returns: size of name written or would be written if larger than
+ *          available buffer
+ *
+ * Note: labels do not have to be strictly hierarchical to the ns as
+ *       objects may be shared across different namespaces and thus
+ *       pickup labeling from each ns.  If a particular part of the
+ *       label is not visible it will just be excluded.  And if none
+ *       of the label is visible "---" will be used.
+ */
+int aa_label_snprint(char *str, size_t size, struct aa_namespace *ns,
+		     struct aa_label *label, bool mode)
+{
+	struct aa_profile *profile;
+	int i, count = 0, total = 0;
+	size_t len;
+
+	AA_BUG(!str && size != 0);
+	AA_BUG(!ns);
+	AA_BUG(!label);
+
+	label_for_each(i, label, profile) {
+		if (aa_ns_visible(ns, profile->ns)) {
+			if (count > 0) {
+				len = snprintf(str, size, "//&");
+				update_for_len(total, len, size, str);
+			}
+			len = aa_profile_snprint(str, size, ns, profile, false);
+			update_for_len(total, len, size, str);
+			count++;
+		}
+	}
+
+	if (count == 0)
+		return snprintf(str, size, aa_hidden_ns_name);
+
+	/* count == 1 && ... is for backwards compat where the mode
+	 * is not displayed for 'unconfined' in the current ns
+	 */
+	if (mode &&
+	    !(count == 1 && labels_ns(label) == ns &&
+	      labels_profile(label) == ns->unconfined)) {
+		len = snprintf(str, size, " ");
+		update_for_len(total, len, size, str);
+		len = aa_mode_snprint(str, size, ns, label, count);
+		update_for_len(total, len, size, str);
+	}
+
+	return total;
+}
+#undef update_for_len
+
+/**
+ * aa_label_asprint - allocate a string buffer and print label into it
+ * @strp: Returns - the allocated buffer with the label name. (NOT NULL)
+ * @ns: namespace profile is being viewed from (NOT NULL)
+ * @label: label to view (NOT NULL)
+ * @mode: whether to include the mode string
+ * @gfp: kernel memory allocation type
+ *
+ * Returns: size of name written or would be written if larger than
+ *          available buffer
+ */
+int aa_label_asprint(char **strp, struct aa_namespace *ns,
+		     struct aa_label *label, bool mode, gfp_t gfp)
+{
+	int size;
+
+	AA_BUG(!strp);
+	AA_BUG(!ns);
+	AA_BUG(!label);
+
+	size = aa_label_snprint(NULL, 0, ns, label, mode);
+	if (size < 0)
+		return size;
+
+	*strp = kmalloc(size + 1, gfp);
+	if (!*strp)
+		return -ENOMEM;
+	return aa_label_snprint(*strp, size + 1, ns, label, mode);
+}
+
+/**
+ * aa_label_acntsprint - allocate a __counted string buffer and print label
+ * @strp: buffer to write to. (MAY BE NULL if @size == 0)
+ * @ns: namespace profile is being viewed from (NOT NULL)
+ * @label: label to view (NOT NULL)
+ * @mode: whether to include the mode string
+ * @gfp: kernel memory allocation type
+ *
+ * Returns: size of name written or would be written if larger than
+ *          available buffer
+ */
+int aa_label_acntsprint(char __counted **strp, struct aa_namespace *ns,
+			struct aa_label *label, bool mode, gfp_t gfp)
+{
+	int size;
+
+	AA_BUG(!strp);
+	AA_BUG(!ns);
+	AA_BUG(!label);
+
+	size = aa_label_snprint(NULL, 0, ns, label, mode);
+	if (size < 0)
+		return size;
+
+	*strp = aa_str_alloc(size + 1, gfp);
+	if (!*strp)
+		return -ENOMEM;
+	return aa_label_snprint(*strp, size + 1, ns, label, mode);
+}
+
+
+void aa_label_audit(struct audit_buffer *ab, struct aa_namespace *ns,
+		    struct aa_label *label, bool mode, gfp_t gfp)
+{
+	const char *str;
+	char *name = NULL;
+	int len;
+
+	AA_BUG(!ab);
+	AA_BUG(!ns);
+	AA_BUG(!label);
+
+	if (label_name_visible(ns, label)) {
+		str = (char *) label->hname;
+		len = strlen(str);
+	} else {
+		labelstats_inc(audit_name_alloc);
+		len  = aa_label_asprint(&name, ns, label, mode, gfp);
+		if (len == -1) {
+			labelstats_inc(audit_name_fail);
+			AA_DEBUG("label print error");
+			return;
+		}
+		str = name;
+	}
+
+	if (audit_string_contains_control(str, len))
+		audit_log_n_hex(ab, str, len);
+	else
+		audit_log_n_string(ab, str, len);
+
+	kfree(name);
+}
+
+void aa_label_seq_print(struct seq_file *f, struct aa_namespace *ns,
+			struct aa_label *label, bool mode, gfp_t gfp)
+{
+	AA_BUG(!f);
+	AA_BUG(!ns);
+	AA_BUG(!label);
+
+	if (!label_name_visible(ns, label)) {
+		char *str;
+		int len;
+
+		labelstats_inc(seq_print_name_alloc);
+		len = aa_label_asprint(&str, ns, label, mode, gfp);
+		if (len == -1) {
+			labelstats_inc(seq_print_name_fail);
+			AA_DEBUG("label print error");
+			return;
+		}
+		seq_printf(f, "%s", str);
+		kfree(str);
+	} else
+		seq_printf(f, "%s", label->hname);
+}
+
+void aa_label_printk(struct aa_namespace *ns, struct aa_label *label, bool mode,
+		     gfp_t gfp)
+{
+	char *str;
+	int len;
+
+	AA_BUG(!ns);
+	AA_BUG(!label);
+
+	if (!label_name_visible(ns, label)) {
+		labelstats_inc(printk_name_alloc);
+		len = aa_label_asprint(&str, ns, label, mode, gfp);
+		if (len == -1) {
+			labelstats_inc(printk_name_fail);
+			AA_DEBUG("label print error");
+			return;
+		}
+		printk("%s", str);
+		kfree(str);
+	} else
+		printk("%s", label->hname);
+}
+
+
+static int label_count_str_entries(const char *str)
+{
+	const char *split;
+	int count = 1;
+
+	AA_BUG(!str);
+
+	for (split = strstr(str, "//&"); split; split = strstr(str, "//&")) {
+		count++;
+		str = split + 3;
+	}
+
+	return count;
+}
+
+/**
+ * aa_sort_and_merge_profiles - canonical sort and merge a list of profiles
+ * @n: number of refcounted profiles in the list (@n > 0)
+ * @ps: list of profiles to sort and merge
+ *
+ * Returns: the number of duplicates eliminated == references put
+ */
+static int aa_sort_and_merge_profiles(int n, struct aa_profile **ps)
+{
+	int i, dups = 0;
+
+	AA_BUG(n < 1);
+	AA_BUG(!ps);
+
+	/* label lists are usually small so just use insertion sort */
+	for (i = 1; i < n; i++) {
+		struct aa_profile *tmp = ps[i];
+		int pos, j;
+
+		for (pos = i - 1 - dups; pos >= 0; pos--) {
+			int res = profile_cmp(ps[pos], tmp);
+			if (res == 0) {
+				aa_put_profile(tmp);
+				dups++;
+				continue;
+			} else if (res < 0)
+				break;
+		}
+		pos++;
+
+		for (j = i - dups; j > pos; j--)
+			ps[j] = ps[j - 1];
+
+		ps[pos] = tmp;
+	}
+
+	return dups;
+}
+
+/**
+ * aa_label_parse - parse, validate and convert a text string to a label
+ * @base: base namespace to use for lookups (NOT NULL)
+ * @str: null terminated text string (NOT NULL)
+ * @gfp: allocation type
+ *
+ * Returns: the matching refcounted label if present
+ *     else ERRPTR
+ */
+struct aa_label *aa_label_parse(struct aa_namespace *base, char *str, gfp_t gfp)
+{
+	struct aa_profile *profile;
+	struct aa_label *l, *label;
+	int i, len, unconf;
+	char *split;
+
+	AA_BUG(!base);
+	AA_BUG(!str);
+
+	len = label_count_str_entries(str);
+	label = aa_label_alloc(len, gfp);
+	if (!label)
+		return ERR_PTR(-ENOMEM);
+
+	for (split = strstr(str, "//&"), i = 0; split && i < len; i++) {
+		*split = 0;
+		label->ent[i] = aa_fqlookupn_profile(base, str, split - str);
+		if (!label->ent[i])
+			goto fail;
+		str = split + 3;
+		split = strstr(str, "//&");
+	}
+	label->ent[i] = aa_fqlookupn_profile(base, str, strlen(str));
+	if (!label->ent[i])
+		goto fail;
+
+	i = aa_sort_and_merge_profiles(len, &label->ent[0]);
+	label->size -= i;
+
+	unconf = 1;
+	label_for_each(i, label, profile) {
+		if (!profile_unconfined(profile)) {
+			unconf = 0;
+			break;
+		}
+	}
+
+	if (unconf)
+		label->flags = FLAG_UNCONFINED;
+
+	l = aa_label_find(labels_set(label), label);
+	if (!l)
+		goto fail;
+	aa_put_label(label);
+	return l;
+
+fail:
+	aa_label_free(label);
+	return ERR_PTR(-ENOENT);
+}
+/**
  * aa_label_insert - insert label @l into @ls or return existing label
  * @ls - labelset to insert @l into
  * @l - label to insert

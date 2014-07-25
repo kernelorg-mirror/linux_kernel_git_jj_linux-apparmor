@@ -93,6 +93,9 @@
 /* root profile namespace */
 struct aa_namespace *root_ns;
 
+/* Note: mode names must be unique in the first character because of
+ *       modechrs used to print modes on compound labels on some interfaces
+ */
 const char *const aa_profile_mode_names[] = {
 	"enforce",
 	"complain",
@@ -907,6 +910,25 @@ struct aa_profile *aa_lookup_profile(struct aa_namespace *ns, const char *hname)
 	return aa_lookupn_profile(ns, hname, strlen(hname));
 }
 
+struct aa_profile *aa_fqlookupn_profile(struct aa_namespace *base, char *fqname,
+					int n)
+{
+	struct aa_profile *profile;
+	struct aa_namespace *ns;
+	char *name, *ns_name;
+
+	name = aa_split_fqname(fqname, &ns_name);
+	if (ns_name) {
+		ns = aa_find_namespace(base, ns_name);
+		if (!ns)
+			return NULL;
+	} else
+		ns = aa_get_namespace(base);
+	profile = aa_lookupn_profile(ns, name, n - (name - fqname));
+	aa_put_namespace(ns);
+
+       return profile;
+}
 
 /**
  * replacement_allowed - test to see if replacement is allowed
