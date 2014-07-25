@@ -137,11 +137,6 @@ int aa_net_perm(int op, struct aa_label *label, u16 family, int type,
 	if ((type < 0) || (type >= SOCK_MAX))
 		return -EINVAL;
 
-	/* unix domain and netlink sockets are handled by ipc */
-	if (family == AF_UNIX || family == AF_NETLINK)
-		return 0;
-
-
 	return fn_for_each_confined(label, profile,
 			af_mask_perm(op, profile, family, type, protocol, sk));
 }

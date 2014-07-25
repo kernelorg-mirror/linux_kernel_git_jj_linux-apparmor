@@ -32,6 +32,11 @@
 
 #define K_ABI_MASK 0x3ff
 #define FORCE_COMPLAIN_FLAG 0x800
+#define VERSION_CMP(OP, X, Y) (((X) & K_ABI_MASK) OP ((Y) & K_ABI_MASK))
+
+#define v5	5	/* base version */
+#define v6	6	/* per entry policydb mediation check */
+#define v7	7	/* full network masking */
 
 /*
  * The AppArmor interface treats data as a type byte followed by the
@@ -616,12 +621,11 @@ static struct aa_profile *unpack_profile(struct aa_ext *e)
 		if (!unpack_nameX(e, AA_ARRAYEND, NULL))
 			goto fail;
 	}
-	/*
-	 * allow unix domain and netlink sockets they are handled
-	 * by IPC
-	 */
-	profile->net.allow[AF_UNIX] = 0xffff;
-	profile->net.allow[AF_NETLINK] = 0xffff;
+	if (VERSION_CMP(<, e->version, v7)) {
+		/* old policy always allowed these too */
+		profile->net.allow[AF_UNIX] = 0xffff;
+		profile->net.allow[AF_NETLINK] = 0xffff;
+	}
 
 	if (unpack_nameX(e, AA_STRUCT, "policydb")) {
 		/* generic policy dfa - optional and may be NULL */
@@ -707,8 +711,7 @@ static int verify_header(struct aa_ext *e, int required, const char **ns)
 	 * if not specified use previous version
 	 * Mask off everything that is not kernel abi version
 	 */
-	if ((e->version & K_ABI_MASK) < 5 &&
-	    (e->version & K_ABI_MASK) > 6) {
+	if (VERSION_CMP(<, e->version, v5) && VERSION_CMP(>, e->version, v7)) {
 		audit_iface(NULL, NULL, "unsupported interface version",
 			    e, error);
 		return error;
