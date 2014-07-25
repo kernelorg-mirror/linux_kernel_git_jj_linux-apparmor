@@ -1505,6 +1505,8 @@ struct aa_label *aa_label_parse(struct aa_label *base, char *str, gfp_t gfp)
 		l = ERR_PTR(-ENOENT);
 
 out:
+	for (i = 0; i < len && vec[i]; i++)
+		aa_put_profile(vec[i]);
 	if (vec != tmp)
 		kfree(vec);
 	return l;
