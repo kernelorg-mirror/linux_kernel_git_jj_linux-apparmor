@@ -82,6 +82,7 @@
 #include "include/context.h"
 #include "include/file.h"
 #include "include/ipc.h"
+#include "include/label.h"
 #include "include/match.h"
 #include "include/path.h"
 #include "include/policy.h"
@@ -297,14 +298,16 @@ static struct aa_namespace *alloc_namespace(const char *prefix,
 	if (!ns->unconfined)
 		goto fail_unconfined;
 
-	ns->unconfined->flags = PFLAG_IX_ON_NAME_ERROR |
-		PFLAG_IMMUTABLE | PFLAG_NS_COUNT;
+	ns->unconfined->label.flags |= FLAG_IX_ON_NAME_ERROR |
+		FLAG_IMMUTIBLE | FLAG_NS_COUNT | FLAG_UNCONFINED;
 	ns->unconfined->mode = APPARMOR_UNCONFINED;
 
 	/* ns and ns->unconfined share ns->unconfined refcount */
 	ns->unconfined->ns = ns;
 
 	atomic_set(&ns->uniq_null, 0);
+
+	aa_labelset_init(&ns->labels);
 
 	return ns;
 
@@ -316,18 +319,19 @@ fail_ns:
 }
 
 /**
- * free_namespace - free a profile namespace
+ * aa_free_namespace - free a profile namespace
  * @ns: the namespace to free  (MAYBE NULL)
  *
  * Requires: All references to the namespace must have been put, if the
  *           namespace was referenced by a profile confining a task,
  */
-static void free_namespace(struct aa_namespace *ns)
+void aa_free_namespace(struct aa_namespace *ns)
 {
 	if (!ns)
 		return;
 
 	policy_destroy(&ns->base);
+	aa_labelset_destroy(&ns->labels);
 	aa_put_namespace(ns->parent);
 
 	ns->unconfined->ns = NULL;
@@ -403,11 +407,12 @@ static struct aa_namespace *aa_prepare_namespace(const char *name)
 		if (__aa_fs_namespace_mkdir(ns, ns_subns_dir(root), name)) {
 			AA_ERROR("Failed to create interface for ns %s\n",
 				 ns->base.name);
-			free_namespace(ns);
+			aa_free_namespace(ns);
 			ns = NULL;
 			goto out;
 		}
 		ns->parent = aa_get_namespace(root);
+		ns->level = root->level + 1;
 		list_add_rcu(&ns->base.list, &root->sub_ns);
 		/* add list ref */
 		aa_get_namespace(ns);
@@ -621,29 +626,6 @@ void aa_free_profile(struct aa_profile *profile)
 }
 
 /**
- * aa_free_profile_rcu - free aa_profile by rcu (called by aa_free_profile_kref)
- * @head: rcu_head callback for freeing of a profile  (NOT NULL)
- */
-static void aa_free_profile_rcu(struct rcu_head *head)
-{
-	struct aa_profile *p = container_of(head, struct aa_profile, rcu);
-	if (p->flags & PFLAG_NS_COUNT)
-		free_namespace(p->ns);
-	else
-		aa_free_profile(p);
-}
-
-/**
- * aa_free_profile_kref - free aa_profile by kref (called by aa_put_profile)
- * @kr: kref callback for freeing of a profile  (NOT NULL)
- */
-void aa_free_profile_kref(struct kref *kref)
-{
-	struct aa_profile *p = container_of(kref, struct aa_profile, count);
-	call_rcu(&p->rcu, aa_free_profile_rcu);
-}
-
-/**
  * aa_alloc_profile - allocate, initialize and return a new profile
  * @hname: name of the profile  (NOT NULL)
  *
@@ -665,7 +647,11 @@ struct aa_profile *aa_alloc_profile(const char *hname)
 
 	if (!policy_init(&profile->base, NULL, hname))
 		goto fail;
-	kref_init(&profile->count);
+	if (!aa_label_init(&profile->label, 1))
+		goto fail;
+	profile->label.hname = profile->base.hname;
+	profile->label.flags |= FLAG_PROFILE;
+	profile->label.ent[0] = profile;
 
 	/* refcount released by caller */
 	return profile;
@@ -709,9 +695,9 @@ struct aa_profile *aa_new_null_profile(struct aa_profile *parent, int hat)
 		goto fail;
 
 	profile->mode = APPARMOR_COMPLAIN;
-	profile->flags |= PFLAG_NULL;
+	profile->label.flags |= FLAG_NULL;
 	if (hat)
-		profile->flags |= PFLAG_HAT;
+		profile->label.flags |= FLAG_HAT;
 
 	/* released on free_profile */
 	rcu_assign_pointer(profile->parent, aa_get_profile(parent));
@@ -738,7 +724,7 @@ struct aa_profile *aa_setup_default_profile(void)
 		return NULL;
 
 	/* the default profile pretends to be unconfined until it is replaced */
-	profile->flags |= PFLAG_IX_ON_NAME_ERROR;
+	profile->label.flags |= FLAG_IX_ON_NAME_ERROR | FLAG_UNCONFINED;
 	profile->mode = APPARMOR_UNCONFINED;
 
 	profile->ns = aa_get_namespace(root_ns);
@@ -839,9 +825,10 @@ static struct aa_policy *__lookup_parent(struct aa_namespace *ns,
 }
 
 /**
- * __lookup_profile - lookup the profile matching @hname
+ * __lookupn_profile - lookup the profile matching @hname
  * @base: base list to start looking up profile name from  (NOT NULL)
  * @hname: hierarchical profile name  (NOT NULL)
+ * @n: length of @hname
  *
  * Requires: rcu_read_lock be held
  *
@@ -849,52 +836,67 @@ static struct aa_policy *__lookup_parent(struct aa_namespace *ns,
  *
  * Do a relative name lookup, recursing through profile tree.
  */
-static struct aa_profile *__lookup_profile(struct aa_policy *base,
-					   const char *hname)
+static struct aa_profile *__lookupn_profile(struct aa_policy *base,
+					    const char *hname, size_t n)
 {
 	struct aa_profile *profile = NULL;
-	char *split;
+	const char *split, *name = hname;
 
-	for (split = strstr(hname, "//"); split;) {
-		profile = __strn_find_child(&base->profiles, hname,
-					    split - hname);
+	for (split = strstr(hname, "//"); split && (split - hname <= n);) {
+		profile = __strn_find_child(&base->profiles, name,
+					    split - name);
 		if (!profile)
 			return NULL;
 
 		base = &profile->base;
-		hname = split + 2;
-		split = strstr(hname, "//");
+		name = split + 2;
+		split = strstr(name, "//");
 	}
 
-	profile = __find_child(&base->profiles, hname);
+	if (name - hname <= n)
+		return __strn_find_child(&base->profiles, name,
+					 n - (name - hname));
+	return NULL;
+}
 
-	return profile;
+static struct aa_profile *__lookup_profile(struct aa_policy *base,
+					   const char *hname)
+{
+	return __lookupn_profile(base, hname, strlen(hname));
 }
 
 /**
  * aa_lookup_profile - find a profile by its full or partial name
  * @ns: the namespace to start from (NOT NULL)
  * @hname: name to do lookup on.  Does not contain namespace prefix (NOT NULL)
+ * @n: size of @hname
  *
  * Returns: refcounted profile or NULL if not found
  */
-struct aa_profile *aa_lookup_profile(struct aa_namespace *ns, const char *hname)
+struct aa_profile *aa_lookupn_profile(struct aa_namespace *ns,
+				      const char *hname, size_t n)
 {
 	struct aa_profile *profile;
 
 	rcu_read_lock();
 	do {
-		profile = __lookup_profile(&ns->base, hname);
+		profile = __lookupn_profile(&ns->base, hname, n);
 	} while (profile && !aa_get_profile_not0(profile));
 	rcu_read_unlock();
 
 	/* the unconfined profile is not in the regular profile list */
-	if (!profile && strcmp(hname, "unconfined") == 0)
+	if (!profile && strncmp(hname, "unconfined", n) == 0)
 		profile = aa_get_newest_profile(ns->unconfined);
 
 	/* refcount released by caller */
 	return profile;
 }
+
+struct aa_profile *aa_lookup_profile(struct aa_namespace *ns, const char *hname)
+{
+	return aa_lookupn_profile(ns, hname, strlen(hname));
+}
+
 
 /**
  * replacement_allowed - test to see if replacement is allowed
@@ -908,7 +910,7 @@ static int replacement_allowed(struct aa_profile *profile, int noreplace,
 			       const char **info)
 {
 	if (profile) {
-		if (profile->flags & PFLAG_IMMUTABLE) {
+		if (profile->label.flags & FLAG_IMMUTIBLE) {
 			*info = "cannot replace immutible profile";
 			return -EPERM;
 		} else if (noreplace) {
@@ -1088,6 +1090,7 @@ static void share_name(struct aa_profile *old, struct aa_profile *new)
 	aa_get_str(old->base.hname);
 	new->base.hname = old->base.hname;
 	new->base.name = old->base.name;
+	new->label.hname = old->label.hname;
 }
 
 /**

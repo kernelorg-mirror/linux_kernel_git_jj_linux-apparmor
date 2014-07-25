@@ -54,6 +54,12 @@ extern bool aa_g_unconfined_init;
 			printk(KERN_DEBUG "AppArmor: " fmt, ##args);	\
 	} while (0)
 
+#define AA_WARN(X) WARN((X), "APPARMOR WARN %s: %s\n", __FUNCTION__, #X)
+
+#define AA_BUG(X, args...) AA_BUG_FMT((X), "" args )
+#define AA_BUG_FMT(X, fmt, args...)					\
+	WARN((X), "AppArmor WARN %s: (" #X "): " fmt, __FUNCTION__ , ##args )
+
 #define AA_ERROR(fmt, args...)						\
 	do {								\
 		if (printk_ratelimit())					\

@@ -516,7 +516,7 @@ static struct aa_profile *unpack_profile(struct aa_ext *e)
 	if (!unpack_u32(e, &tmp, NULL))
 		goto fail;
 	if (tmp & PACKED_FLAG_HAT)
-		profile->flags |= PFLAG_HAT;
+		profile->label.flags |= FLAG_HAT;
 	if (!unpack_u32(e, &tmp, NULL))
 		goto fail;
 	if (tmp == PACKED_MODE_COMPLAIN)
@@ -535,10 +535,11 @@ static struct aa_profile *unpack_profile(struct aa_ext *e)
 
 	/* path_flags is optional */
 	if (unpack_u32(e, &profile->path_flags, "path_flags"))
-		profile->path_flags |= profile->flags & PFLAG_MEDIATE_DELETED;
+		profile->path_flags |= profile->label.flags &
+			FLAG_MEDIATE_DELETED;
 	else
 		/* set a default value if path_flags field is not present */
-		profile->path_flags = PFLAG_MEDIATE_DELETED;
+		profile->path_flags = FLAG_MEDIATE_DELETED;
 
 	if (!unpack_u32(e, &(profile->caps.allow.cap[0]), NULL))
 		goto fail;

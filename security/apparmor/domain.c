@@ -143,7 +143,7 @@ static struct aa_profile *__attach_match(const char *name,
 	struct aa_profile *profile, *candidate = NULL;
 
 	list_for_each_entry_rcu(profile, head, base.list) {
-		if (profile->flags & PFLAG_NULL)
+		if (profile->label.flags & FLAG_NULL)
 			continue;
 		if (profile->xmatch && profile->xmatch_len > len) {
 			unsigned int state = aa_dfa_match(profile->xmatch,
@@ -370,7 +370,7 @@ int apparmor_bprm_set_creds(struct linux_binprm *bprm)
 			     &name, &info);
 	if (error) {
 		if (unconfined(profile) ||
-		    (profile->flags & PFLAG_IX_ON_NAME_ERROR))
+		    (profile->label.flags & FLAG_IX_ON_NAME_ERROR))
 			error = 0;
 		name = bprm->filename;
 		goto audit;

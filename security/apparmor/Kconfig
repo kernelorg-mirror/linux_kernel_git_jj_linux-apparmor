@@ -30,6 +30,17 @@ config SECURITY_APPARMOR_BOOTPARAM_VALUE
 
 	  If you are unsure how to answer this question, answer 1.
 
+config SECURITY_APPARMOR_STATS
+	bool "enable debug statistics"
+	depends on SECURITY_APPARMOR
+	select APPARMOR_LABEL_STATS
+	default n
+	help
+	  This enables keeping statistics on various internal structures
+	  and functions in apparmor.
+
+	  If you are unsure how to answer this question, answer N.
+
 config SECURITY_APPARMOR_UNCONFINED_INIT
 	bool "Set init to unconfined on boot"
 	depends on SECURITY_APPARMOR
