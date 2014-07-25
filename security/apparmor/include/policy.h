@@ -220,6 +220,8 @@ void aa_free_namespace_kref(struct kref *kref);
 
 struct aa_namespace *aa_find_namespace(struct aa_namespace *root,
 				       const char *name);
+struct aa_namespace *aa_findn_namespace(struct aa_namespace *root,
+					const char *name, size_t n);
 
 struct aa_label *aa_setup_default_label(void);
 
@@ -232,7 +234,7 @@ struct aa_profile *aa_lookupn_profile(struct aa_namespace *ns,
 				      const char *hname, size_t n);
 struct aa_profile *aa_lookup_profile(struct aa_namespace *ns, const char *name);
 struct aa_profile *aa_fqlookupn_profile(struct aa_namespace *ns, char *fqname,
-					int n);
+					size_t n);
 struct aa_profile *aa_match_profile(struct aa_namespace *ns, const char *name);
 
 ssize_t aa_replace_profiles(void *udata, size_t size, bool noreplace);

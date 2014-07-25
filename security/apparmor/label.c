@@ -1422,7 +1422,6 @@ struct aa_label *aa_label_parse(struct aa_namespace *base, char *str, gfp_t gfp)
 		return ERR_PTR(-ENOMEM);
 
 	for (split = strstr(str, "//&"), i = 0; split && i < len; i++) {
-		*split = 0;
 		label->ent[i] = aa_fqlookupn_profile(base, str, split - str);
 		if (!label->ent[i])
 			goto fail;

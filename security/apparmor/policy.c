@@ -349,18 +349,41 @@ void aa_free_namespace(struct aa_namespace *ns)
 }
 
 /**
- * __aa_find_namespace - find a namespace on a list by @name
+ * __aa_findn_namespace - find a namespace on a list by @name
  * @head: list to search for namespace on  (NOT NULL)
  * @name: name of namespace to look for  (NOT NULL)
- *
+ * @n: length of @name
  * Returns: unrefcounted namespace
  *
  * Requires: rcu_read_lock be held
  */
-static struct aa_namespace *__aa_find_namespace(struct list_head *head,
-						const char *name)
+static struct aa_namespace *__aa_findn_namespace(struct list_head *head,
+						 const char *name, size_t n)
 {
-	return (struct aa_namespace *)__policy_find(head, name);
+	return (struct aa_namespace *)__policy_strn_find(head, name, n);
+}
+
+/**
+ * aa_find_namespace  -  look up a profile namespace on the namespace list
+ * @root: namespace to search in  (NOT NULL)
+ * @name: name of namespace to find  (NOT NULL)
+ * @n: length of @name
+ *
+ * Returns: a refcounted namespace on the list, or NULL if no namespace
+ *          called @name exists.
+ *
+ * refcount released by caller
+ */
+struct aa_namespace *aa_findn_namespace(struct aa_namespace *root,
+					const char *name, size_t n)
+{
+	struct aa_namespace *ns = NULL;
+
+	rcu_read_lock();
+	ns = aa_get_namespace(__aa_findn_namespace(&root->sub_ns, name, n));
+	rcu_read_unlock();
+
+	return ns;
 }
 
 /**
@@ -376,13 +399,7 @@ static struct aa_namespace *__aa_find_namespace(struct list_head *head,
 struct aa_namespace *aa_find_namespace(struct aa_namespace *root,
 				       const char *name)
 {
-	struct aa_namespace *ns = NULL;
-
-	rcu_read_lock();
-	ns = aa_get_namespace(__aa_find_namespace(&root->sub_ns, name));
-	rcu_read_unlock();
-
-	return ns;
+	return aa_findn_namespace(root, name, strlen(name));
 }
 
 /**
@@ -408,7 +425,8 @@ static struct aa_namespace *aa_prepare_namespace(const char *name)
 
 	/* try and find the specified ns and if it doesn't exist create it */
 	/* released by caller */
-	ns = aa_get_namespace(__aa_find_namespace(&root->sub_ns, name));
+	ns = aa_get_namespace(__aa_findn_namespace(&root->sub_ns, name,
+						   strlen(name)));
 	if (!ns) {
 		ns = alloc_namespace(root->base.hname, name);
 		if (!ns)
@@ -912,15 +930,16 @@ struct aa_profile *aa_lookup_profile(struct aa_namespace *ns, const char *hname)
 }
 
 struct aa_profile *aa_fqlookupn_profile(struct aa_namespace *base, char *fqname,
-					int n)
+					size_t n)
 {
 	struct aa_profile *profile;
 	struct aa_namespace *ns;
 	char *name, *ns_name;
+	size_t ns_len;
 
-	name = aa_split_fqname(fqname, &ns_name);
+	name = aa_splitn_fqname(fqname, n, &ns_name, &ns_len);
 	if (ns_name) {
-		ns = aa_find_namespace(base, ns_name);
+		ns = aa_findn_namespace(base, ns_name, ns_len);
 		if (!ns)
 			return NULL;
 	} else
