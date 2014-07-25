@@ -127,9 +127,17 @@ static int apparmor_capget(struct task_struct *target, kernel_cap_t *effective,
 	*inheritable = cred->cap_inheritable;
 	*permitted = cred->cap_permitted;
 
-	if (!unconfined(label) && !COMPLAIN_MODE(labels_profile(label))) {
-		*effective = cap_intersect(*effective, labels_profile(label)->caps.allow);
-		*permitted = cap_intersect(*permitted, labels_profile(label)->caps.allow);
+	if (!unconfined(label)) {
+		struct aa_profile *profile;
+		int i;
+		label_for_each_confined(i, label, profile) {
+			if (COMPLAIN_MODE(profile))
+				continue;
+			*effective = cap_intersect(*effective,
+						   profile->caps.allow);
+			*permitted = cap_intersect(*permitted,
+						   profile->caps.allow);
+		}
 	}
 	rcu_read_unlock();
 
@@ -139,14 +147,23 @@ static int apparmor_capget(struct task_struct *target, kernel_cap_t *effective,
 static int apparmor_capable(const struct cred *cred, struct user_namespace *ns,
 			    int cap, int audit)
 {
+	struct aa_profile *profile;
 	struct aa_label *label;
 	/* cap_capable returns 0 on success, else -EPERM */
-	int error = cap_capable(cred, ns, cap, audit);
-	if (!error) {
-		label = aa_cred_label(cred);
-		if (!unconfined(label))
-			error = aa_capable(labels_profile(label), cap, audit);
+	int i, error = cap_capable(cred, ns, cap, audit);
+	if (error)
+		return error;
+
+	label = aa_cred_label(cred);
+	if (unconfined(label))
+		return 0;
+
+	label_for_each_confined(i, label, profile) {
+		int e = aa_capable(profile, cap, audit);
+		if (e)
+			error = e;
 	}
+
 	return error;
 }
 
@@ -167,7 +184,7 @@ static int common_perm(int op, struct path *path, u32 mask,
 
 	label = __aa_current_label();
 	if (!unconfined(label))
-		error = aa_path_perm(op, labels_profile(label), path, 0, mask, cond);
+		error = aa_path_perm(op, label, path, 0, mask, cond);
 
 	return error;
 }
@@ -311,7 +328,7 @@ static int apparmor_path_link(struct dentry *old_dentry, struct path *new_dir,
 
 	label = aa_current_label();
 	if (!unconfined(label))
-		error = aa_path_link(labels_profile(label), old_dentry, new_dir, new_dentry);
+		error = aa_path_link(label, old_dentry, new_dir, new_dentry);
 	return error;
 }
 
@@ -332,12 +349,12 @@ static int apparmor_path_rename(struct path *old_dir, struct dentry *old_dentry,
 					  old_dentry->d_inode->i_mode
 		};
 
-		error = aa_path_perm(OP_RENAME_SRC, labels_profile(label), &old_path, 0,
+		error = aa_path_perm(OP_RENAME_SRC, label, &old_path, 0,
 				     MAY_READ | AA_MAY_META_READ | MAY_WRITE |
 				     AA_MAY_META_WRITE | AA_MAY_DELETE,
 				     &cond);
 		if (!error)
-			error = aa_path_perm(OP_RENAME_DEST, labels_profile(label), &new_path,
+			error = aa_path_perm(OP_RENAME_DEST, label, &new_path,
 					     0, MAY_WRITE | AA_MAY_META_WRITE |
 					     AA_MAY_CREATE, &cond);
 
@@ -394,7 +411,7 @@ static int apparmor_file_open(struct file *file, const struct cred *cred)
 		struct inode *inode = file_inode(file);
 		struct path_cond cond = { inode->i_uid, inode->i_mode };
 
-		error = aa_path_perm(OP_OPEN, labels_profile(label), &file->f_path, 0,
+		error = aa_path_perm(OP_OPEN, label, &file->f_path, 0,
 				     aa_map_file_to_perms(file), &cond);
 		/* todo cache full allowed permissions set and state */
 		fcxt->allow = aa_map_file_to_perms(file);
@@ -443,7 +460,7 @@ static int common_file_perm(int op, struct file *file, u32 mask)
 	 */
 	if (!unconfined(label) && !unconfined(flabel) &&
 	    ((flabel != label) || (mask & ~fcxt->allow)))
-		error = aa_file_perm(op, labels_profile(label), file, mask);
+		error = aa_file_perm(op, label, file, mask);
 
 	return error;
 }
