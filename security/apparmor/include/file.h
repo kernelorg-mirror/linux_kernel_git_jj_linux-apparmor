@@ -82,6 +82,8 @@ static inline struct aa_label *aa_get_file_label(struct aa_file_cxt *cxt)
 	return aa_get_label_rcu(&cxt->label);
 }
 
+#define inode_cxt(X) (X)->i_security
+
 /*
  * The xindex is broken into 3 parts
  * - index - an index into either the exec name table or the variable table

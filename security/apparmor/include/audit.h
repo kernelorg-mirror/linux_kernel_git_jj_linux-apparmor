@@ -122,6 +122,10 @@ struct apparmor_audit_data {
 				struct {
 					kuid_t ouid;
 				} fs;
+				struct {
+					int type, protocol;
+					struct sock *sk;
+				} net;
 			};
 		};
 		struct {

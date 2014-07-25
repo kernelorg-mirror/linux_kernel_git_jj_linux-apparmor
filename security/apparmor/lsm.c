@@ -32,6 +32,7 @@
 #include "include/context.h"
 #include "include/file.h"
 #include "include/ipc.h"
+#include "include/net.h"
 #include "include/path.h"
 #include "include/policy.h"
 #include "include/procattr.h"
@@ -195,6 +196,16 @@ static int common_perm_cond(int op, struct path *path, u32 mask)
 	};
 
 	return common_perm(op, path, mask, &cond);
+}
+
+static void apparmor_inode_free_security(struct inode *inode)
+{
+	struct aa_label *cxt = inode_cxt(inode);
+
+	if (cxt) {
+		inode_cxt(inode) = NULL;
+		aa_put_label(cxt);
+	}
 }
 
 /**
@@ -663,6 +674,351 @@ static int apparmor_task_setrlimit(struct task_struct *task,
 	return error;
 }
 
+/**
+ * apparmor_sk_alloc_security - allocate and attach the sk_security field
+??? local stream only ????
+ */
+static int apparmor_sk_alloc_security(struct sock *sk, int family, gfp_t flags)
+{
+	struct aa_sk_cxt *cxt;
+
+	cxt = kzalloc(sizeof(*cxt), flags);
+	if (!cxt)
+		return -ENOMEM;
+
+	SK_CXT(sk) = cxt;
+
+	return 0;
+}
+
+/**
+ * apparmor_sk_free_security - free the sk_security field
+ */
+static void apparmor_sk_free_security(struct sock *sk)
+{
+	struct aa_sk_cxt *cxt = SK_CXT(sk);
+
+	SK_CXT(sk) = NULL;
+	aa_put_label(cxt->label);
+	aa_put_label(cxt->peer);
+	kfree(cxt);
+}
+
+/**
+ * apparmor_clone_security - clone the sk_security field
+ */
+static void apparmor_sk_clone_security(const struct sock *sk,
+				       struct sock *newsk)
+{
+// ??? selinux
+	struct aa_sk_cxt *cxt = SK_CXT(sk);
+	struct aa_sk_cxt *new = SK_CXT(newsk);
+
+	new->label = aa_get_label(cxt->label);
+	new->peer = aa_get_label(cxt->peer);
+}
+
+#include <net/af_unix.h>
+#define print_sk(SK) \
+do { \
+	if ((SK)->sk_family == PF_UNIX) {	\
+		struct unix_sock *u = unix_sk(SK);	\
+		int len, addr_len;			\
+		char *buf;				\
+		if (!u->addr) {				\
+			addr_len = sizeof(sa_family_t);		   \
+		} else {					   \
+			addr_len = u->addr->len; \
+			buf = (char *) &u->addr->name->sun_path;	\
+		}							\
+		len = addr_len - sizeof(sa_family_t);			\
+		printk("%s: %s: f %d, t %d, p %d", __FUNCTION__, \
+		       #SK ,						\
+		       (SK)->sk_family, (SK)->sk_type, (SK)->sk_protocol); \
+		if (len <= 0)						\
+			printk(" <anonymous>");				\
+		else if (buf[0])					\
+			printk(" %s", buf);				\
+		else							\
+			printk(" %d @%.*s", len, len, buf+1);	\
+		printk("\n");						\
+	} else {							\
+		printk("%s: %s: family %d\n", __FUNCTION__, #SK , (SK)->sk_family); \
+	}								\
+} while (0)
+
+// sk->sk_socket is NULL when orphaned/being shutdown
+// socket->sk set on graft, and sock_init_data if (socket exists)
+
+/**
+ * apparmor_unix_stream_connect - check perms before making unix domain conn
+ *
+ * only used for alt unix socket namespace ???
+ */
+static int apparmor_unix_stream_connect(struct sock *sock, struct sock *other,
+					struct sock *newsk)
+{
+	struct aa_sk_cxt *sock_cxt = SK_CXT(sock);
+	struct aa_sk_cxt *other_cxt = SK_CXT(other);
+	struct aa_sk_cxt *new_cxt = SK_CXT(newsk);
+
+
+#if 0
+	if (!perms to connect sock to other)
+
+		return error;
+#endif
+
+// ??? label not updated after connection??? it would be good if the label
+// was updated as the task labeling is updated
+	if (new_cxt->peer) {
+		//printk("%s: new_cxt->peer\n", __FUNCTION__);
+		aa_put_label(new_cxt->peer);
+	}
+	if (sock_cxt->peer) {
+		//printk("%s: sock_cxt->peer\n", __FUNCTION__);
+		aa_put_label(sock_cxt->peer);
+	}
+
+	new_cxt->peer = aa_get_label(sock_cxt->label);
+	sock_cxt->peer = aa_get_label(other_cxt->label);
+
+//	print_sk(sock);
+//	print_sk(other);
+//	print_sk(newsk);
+
+	return 0;
+}
+
+/**
+ * apparmor_unix_may_send - check perms before conn or sending unix dgrams
+ *
+ * Only used for alt unix socket namespace ????
+ */
+static int apparmor_unix_may_send(struct socket *sock, struct socket *other)
+{
+  //  ??? how do these play in with regular perm checks, conditional?
+
+//	print_sk(sock->sk);
+//	print_sk(other->sk);
+
+	return 0;
+}
+
+/**
+ * apparmor_socket_create - check perms before create a new socket
+ */
+static int apparmor_socket_create(int family, int type, int protocol, int kern)
+{
+	struct aa_label *label;
+
+	label = aa_current_label();
+	if (kern || unconfined(label))
+		return 0;
+
+	return aa_net_perm(OP_CREATE, label, family, type, protocol, NULL);
+}
+
+/**
+ * apparmor_socket_post_create - setup the per-socket security struct
+ *
+ * Note: socket likely does not have sk here
+ * ??? inode vs socket storage ???
+ * sk labeling done in sock_graft
+ */
+static int apparmor_socket_post_create(struct socket *sock, int family,
+				       int type, int protocol, int kern)
+{
+	if (!kern) {
+/* set sock and sk label to NULL if kernel ????? */
+		SOCK_CXT(sock) = aa_get_label(aa_current_label());
+
+		if (sock->sk) {
+			struct aa_sk_cxt *cxt = SK_CXT(sock->sk);
+			aa_put_label(cxt->label);
+			cxt->label = aa_get_label(aa_current_label());
+		}
+	}
+	return 0;
+}
+
+/**
+ * apparmor_socket_bind - check perms before bind addr to socket
+ */
+static int apparmor_socket_bind(struct socket *sock,
+				struct sockaddr *address, int addrlen)
+{
+	struct sock *sk = sock->sk;
+
+	return aa_revalidate_sk(OP_BIND, sk);
+}
+
+/**
+ * apparmor_socket_connect - check perms before connecting @sock to @address
+ */
+static int apparmor_socket_connect(struct socket *sock,
+				   struct sockaddr *address, int addrlen)
+{
+	struct sock *sk = sock->sk;
+
+	return aa_revalidate_sk(OP_CONNECT, sk);
+}
+
+/**
+ * apparmor_socket_list - check perms before allowing listen
+ */
+static int apparmor_socket_listen(struct socket *sock, int backlog)
+{
+	struct sock *sk = sock->sk;
+
+	return aa_revalidate_sk(OP_LISTEN, sk);
+}
+
+/**
+ * apparmor_socket_accept - check perms before accepting a new connection.
+ *
+ * Note: while @newsock is created and has some information, the accept
+ *       has not been done.
+ */
+static int apparmor_socket_accept(struct socket *sock, struct socket *newsock)
+{
+	struct sock *sk = sock->sk;
+
+	return aa_revalidate_sk(OP_ACCEPT, sk);
+}
+
+/**
+ * apparmor_socket_sendmsg - check perms before sending msg to another socket
+ */
+static int apparmor_socket_sendmsg(struct socket *sock,
+				   struct msghdr *msg, int size)
+{
+	struct sock *sk = sock->sk;
+
+	return aa_revalidate_sk(OP_SENDMSG, sk);
+}
+
+/**
+ * apparmor_socket_recvmsg - check perms before receiving a message
+ */
+static int apparmor_socket_recvmsg(struct socket *sock,
+				   struct msghdr *msg, int size, int flags)
+{
+	struct sock *sk = sock->sk;
+
+	return aa_revalidate_sk(OP_RECVMSG, sk);
+}
+
+/**
+ * apparmor_socket_getsockname - check perms before getting the local address
+ */
+static int apparmor_socket_getsockname(struct socket *sock)
+{
+	struct sock *sk = sock->sk;
+
+	return aa_revalidate_sk(OP_GETSOCKNAME, sk);
+}
+
+/**
+ * apparmor_socket_getpeername - check perms before getting remote address
+ */
+static int apparmor_socket_getpeername(struct socket *sock)
+{
+	struct sock *sk = sock->sk;
+
+	return aa_revalidate_sk(OP_GETPEERNAME, sk);
+}
+
+/**
+ * apparmor_getsockopt - check perms before getting socket options
+ */
+static int apparmor_socket_getsockopt(struct socket *sock, int level,
+				      int optname)
+{
+	struct sock *sk = sock->sk;
+
+	return aa_revalidate_sk(OP_GETSOCKOPT, sk);
+}
+
+/**
+ * apparmor_setsockopt - check perms before setting socket options
+ */
+static int apparmor_socket_setsockopt(struct socket *sock, int level,
+				      int optname)
+{
+	struct sock *sk = sock->sk;
+
+	return aa_revalidate_sk(OP_SETSOCKOPT, sk);
+}
+
+/**
+ * apparmor_socket_shutdown - check perms before shutting down @sock conn
+ */
+static int apparmor_socket_shutdown(struct socket *sock, int how)
+{
+	struct sock *sk = sock->sk;
+
+	return aa_revalidate_sk(OP_SOCK_SHUTDOWN, sk);
+}
+
+/**
+ * apparmor_socket_getpeersec_stream - get security context of peer
+ *
+ * Note: for tcp only valid if using ipsec or cipso on lan
+ */
+static int apparmor_socket_getpeersec_stream(struct socket *sock,
+					     char __user *optval,
+					     int __user *optlen, unsigned len)
+{
+	char *name;
+	int slen, error = 0;
+	struct aa_sk_cxt *cxt = SK_CXT(sock->sk);
+	struct aa_label *label = aa_current_label();
+
+	if (!cxt->peer)
+		return -ENOPROTOOPT;
+
+	slen = aa_label_asprint(&name, labels_ns(label), cxt->peer, true,
+				GFP_KERNEL);
+	/* don't include terminating \0 in slen, it breaks some apps */
+	if (slen < 0) {
+		error = -ENOMEM;
+	} else {
+		if (slen > len) {
+			error = -ERANGE;
+		} else if (copy_to_user(optval, name, slen)) {
+			error = -EFAULT;
+			goto out;
+		}
+		if (put_user(slen, optlen))
+			error = -EFAULT;
+	out:
+		kfree(name);
+
+	}
+
+	return error;
+}
+
+/**
+ * apparmor_sock_graft - set the sockets isec sid to the sock's sid ???
+ *
+ * could set off of SOCK_CXT(parent) but need to track inode and we can
+ * just
+ * set sk security information off of current creating process label
+ */
+static void apparmor_sock_graft(struct sock *sk, struct socket *parent)
+{
+	struct aa_sk_cxt *cxt = SK_CXT(sk);
+	if (cxt->label) {
+		//printk("%s: cxt->label\n", __FUNCTION__);
+		aa_put_label(cxt->label);
+	}
+
+	cxt->label = aa_get_label(__aa_current_label());
+}
+
+
 static struct security_operations apparmor_ops = {
 	.name =				"apparmor",
 
@@ -670,6 +1026,8 @@ static struct security_operations apparmor_ops = {
 	.ptrace_traceme =		apparmor_ptrace_traceme,
 	.capget =			apparmor_capget,
 	.capable =			apparmor_capable,
+
+	.inode_free_security =		apparmor_inode_free_security,
 
 	.path_link =			apparmor_path_link,
 	.path_unlink =			apparmor_path_unlink,
@@ -695,6 +1053,29 @@ static struct security_operations apparmor_ops = {
 
 	.getprocattr =			apparmor_getprocattr,
 	.setprocattr =			apparmor_setprocattr,
+
+	.sk_alloc_security = 		apparmor_sk_alloc_security,
+	.sk_free_security = 		apparmor_sk_free_security,
+	.sk_clone_security =		apparmor_sk_clone_security,
+
+	.unix_stream_connect = 		apparmor_unix_stream_connect,
+	.unix_may_send = 		apparmor_unix_may_send,
+
+	.socket_create =		apparmor_socket_create,
+	.socket_post_create = 		apparmor_socket_post_create,
+	.socket_bind =			apparmor_socket_bind,
+	.socket_connect =		apparmor_socket_connect,
+	.socket_listen =		apparmor_socket_listen,
+	.socket_accept =		apparmor_socket_accept,
+	.socket_sendmsg =		apparmor_socket_sendmsg,
+	.socket_recvmsg =		apparmor_socket_recvmsg,
+	.socket_getsockname =		apparmor_socket_getsockname,
+	.socket_getpeername =		apparmor_socket_getpeername,
+	.socket_getsockopt =		apparmor_socket_getsockopt,
+	.socket_setsockopt =		apparmor_socket_setsockopt,
+	.socket_shutdown =		apparmor_socket_shutdown,
+	.socket_getpeersec_stream =	apparmor_socket_getpeersec_stream,
+	.sock_graft = 			apparmor_sock_graft,
 
 	.cred_alloc_blank =		apparmor_cred_alloc_blank,
 	.cred_free =			apparmor_cred_free,
