@@ -239,6 +239,18 @@ ssize_t aa_remove_profiles(char *name, size_t size);
 
 #define profile_unconfined(X) ((X)->mode == APPARMOR_UNCONFINED)
 
+/**
+ * aa_get_newest_profile - simple wrapper fn to wrap the label version
+ * @p: profile (NOT NULL)
+ *
+ * Returns refcount to newest version of the profile (maybe @p)
+ *
+ * Requires: @p must be held with a valid refcount
+ */
+static inline struct aa_profile *aa_get_newest_profile(struct aa_profile *p)
+{
+	return labels_profile(aa_get_newest_label(&p->label));
+}
 
 #define PROFILE_MEDIATES(P, T)  ((P)->policy.start[(T)])
 /* safe version of POLICY_MEDIATES for full range input */

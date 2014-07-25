@@ -899,7 +899,7 @@ struct aa_profile *aa_lookupn_profile(struct aa_namespace *ns,
 
 	/* the unconfined profile is not in the regular profile list */
 	if (!profile && strncmp(hname, "unconfined", n) == 0)
-		profile = labels_profile(aa_get_newest_label(&ns->unconfined->label));
+		profile = aa_get_newest_profile(ns->unconfined);
 
 	/* refcount released by caller */
 	return profile;
@@ -1132,7 +1132,7 @@ static struct aa_profile *update_to_newest_parent(struct aa_profile *new)
 	struct aa_profile *parent, *newest;
 	parent = rcu_dereference_protected(new->parent,
 					   mutex_is_locked(&new->ns->lock));
-	newest = labels_profile(aa_get_newest_label(&parent->label));
+	newest = aa_get_newest_profile(parent);
 
 	/* parent replaced in this atomic set? */
 	if (newest != parent) {
