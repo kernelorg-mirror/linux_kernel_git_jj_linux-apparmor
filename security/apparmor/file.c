@@ -299,13 +299,10 @@ int aa_path_perm(int op, struct aa_label *label, struct path *path,
 			perms.allow = request;
 		}
 
-		label_for_each_confined(i, label, profile) {
-			int e = aa_audit_file(profile, &perms, GFP_KERNEL,
-					      op, request, name, NULL,
-					      cond->uid, info, error);
-			if (e)
-				error = e;
-		}
+		error = fn_for_each_confined(label, profile,
+				aa_audit_file(profile, &perms, GFP_KERNEL, op,
+					      request, name, NULL, cond->uid,
+					      info, error));
 		goto out;
 	}
 
@@ -466,14 +463,10 @@ out:
 	return error;
 
 err:
-	label_for_each_confined(i, label, profile) {
-		int e = aa_audit_file(profile, &lperms, GFP_KERNEL, OP_LINK,
+	error = fn_for_each_confined(label, profile,
+			aa_audit_file(profile, &lperms, GFP_KERNEL, OP_LINK,
 				      request, lname, tname, cond.uid, info,
-				      error);
-		if (e)
-			error = e;
-	}
-
+				      error));
 	goto out;
 }
 

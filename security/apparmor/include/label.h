@@ -176,6 +176,20 @@ int aa_label_next_confined(struct aa_label *l, int i);
 	     (I) < (L)->size && ((P) = (L)->ent[(I)]);	\
 	     (I) = aa_label_next_confined((L), I + 1))
 
+#define fn_for_each_XXX(L, P, FN, ...)			\
+({							\
+	int i, __E = 0;					\
+	label_for_each ## __VA_ARGS__ (i, (L), (P)) {	\
+		int e = (FN);				\
+		if (e)					\
+			__E = e;			\
+	}						\
+	__E;						\
+})
+
+#define fn_for_each(L, P, FN) fn_for_each_XXX(L, P, FN)
+#define fn_for_each_confined(L, P, FN) fn_for_each_XXX(L, P, FN, _confined)
+
 
 void aa_labelset_destroy(struct aa_labelset *ls);
 void aa_labelset_init(struct aa_labelset *ls);
