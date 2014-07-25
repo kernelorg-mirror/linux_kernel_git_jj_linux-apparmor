@@ -438,16 +438,15 @@ static int profile_cmp(struct aa_profile *a, struct aa_profile *b)
 	AA_BUG(!b);
 	AA_BUG(!a->ns);
 	AA_BUG(!b->ns);
-	AA_BUG(!a->base.hname);
-	AA_BUG(!b->base.hname);
 
-	if (a == b || a->base.hname == b->base.hname)
+	if (a == b)
 		return 0;
+
 	res = ns_cmp(a->ns, b->ns);
 	if (res)
 		return res;
 
-	return strcmp(a->base.hname, b->base.hname);
+	return a - b;
 }
 
 /**
