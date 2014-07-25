@@ -694,18 +694,18 @@ static int verify_header(struct aa_ext *e, int required, const char **ns)
 				    error);
 			return error;
 		}
-
-		/* check that the interface version is currently supported.
-		 * Mask off everything that is not kernel abi version
-		 */
-		if ((e->version & K_ABI_MASK) < 5 &&
-		    (e->version & K_ABI_MASK) > 6) {
-			audit_iface(NULL, NULL, "unsupported interface version",
-				    e, error);
-			return error;
-		}
 	}
 
+	/* Check that the interface version is currently supported.
+	 * if not specified use previous version
+	 * Mask off everything that is not kernel abi version
+	 */
+	if ((e->version & K_ABI_MASK) < 5 &&
+	    (e->version & K_ABI_MASK) > 6) {
+		audit_iface(NULL, NULL, "unsupported interface version",
+			    e, error);
+		return error;
+	}
 
 	/* read the namespace if present */
 	if (unpack_str(e, &name, "namespace")) {
