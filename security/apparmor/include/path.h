@@ -71,6 +71,8 @@ do {					\
 	EVAL(__get_buffer, X);		\
 } while (0)
 
+#define __put_buffers(X, Y...) (void)&(X)
+
 #define get_buffers(X...)	\
 do {				\
 	preempt_disable();	\
@@ -79,7 +81,7 @@ do {				\
 
 #define put_buffers(X, Y...)	\
 do {				\
-	(void)&(X);		\
+	__put_buffers(X, Y);	\
 	preempt_enable();	\
 } while (0)
 

@@ -261,6 +261,38 @@ static inline bool is_deleted(struct dentry *dentry)
 	return 0;
 }
 
+static int path_perm(int op, struct aa_profile *profile, const char *name,
+		     u32 request, struct path_cond *cond,
+		     struct file_perms *perms)
+{
+	int e = 0;
+	aa_str_perms(profile->file.dfa, profile->file.start, name, cond, perms);
+	if (request & ~perms->allow)
+		e = -EACCES;
+	return aa_audit_file(profile, perms, op, request, name, NULL,
+			     cond->uid, NULL, e);
+}
+
+static int path_name(int op, struct aa_label *label, struct path *path,
+		     int flags, char *buffer, const char**name,
+		     struct path_cond *cond, u32 request, bool delegate_deleted)
+{
+	struct aa_profile *profile;
+	const char *info = NULL;
+	int error = aa_path_name(path, flags, buffer, name, &info);
+	if (error) {
+		if (error == -ENOENT && is_deleted(path->dentry) &&
+		    delegate_deleted)
+			return 1;
+		fn_for_each_confined(label, profile,
+			aa_audit_file(profile, &nullperms, op, request, *name,
+				      NULL, cond->uid, info, error));
+		return error;
+	}
+
+	return 0;
+}
+
 /**
  * aa_path_perm - do permissions check & audit for @path
  * @op: operation being checked
@@ -275,49 +307,30 @@ static inline bool is_deleted(struct dentry *dentry)
 int aa_path_perm(int op, struct aa_label *label, struct path *path,
 		 int flags, u32 request, struct path_cond *cond)
 {
-	char *buffer = NULL;
 	struct file_perms perms = {};
-	const char *name, *info = NULL;
+	char *buffer = NULL;
+	const char *name;
 	struct aa_profile *profile;
 	int i, error;
 
 	/* TODO: fix path lookup flags */
-	flags |= labels_profile(label)->path_flags | (S_ISDIR(cond->mode) ?
-						      PATH_IS_DIR : 0);
+	flags |= labels_profile(label)->path_flags |
+		(S_ISDIR(cond->mode) ? PATH_IS_DIR : 0);
 	get_buffers(buffer);
-	error = aa_path_name(path, flags, buffer, &name, &info);
-	if (error) {
-		if (error == -ENOENT && is_deleted(path->dentry)) {
-			/* Access to open files that are deleted are
-			 * give a pass (implicit delegation)
-			 */
-			error = 0;
-			info = NULL;
-			perms.allow = request;
-		}
 
-		error = fn_for_each_confined(label, profile,
-				aa_audit_file(profile, &perms, op, request,
-					      name, NULL, cond->uid, info,
-					      error));
+	error = path_name(op, label, path, flags, buffer, &name, cond, request,
+			  false);
+	if (error)
 		goto out;
-	}
 
 	label_for_each_confined(i, label, profile) {
-		int e = 0;
-		aa_str_perms(profile->file.dfa, profile->file.start, name, cond,
-			     &perms);
-		if (request & ~perms.allow)
-			e = -EACCES;
-		e = aa_audit_file(profile, &perms, op, request, name, NULL,
-				  cond->uid, info, e);
+		int e = path_perm(op, profile, name, request, cond, &perms);
 		if (e)
 			error = e;
 	}
 
 out:
 	put_buffers(buffer);
-
 	return error;
 }
 
@@ -382,16 +395,18 @@ int aa_path_link(struct aa_label *label, struct dentry *old_dentry,
 	profile = labels_profile(label);
 	/* buffer freed below, lname is pointer in buffer */
 	get_buffers(buffer, buffer2);
-	error = aa_path_name(&link, labels_profile(label)->path_flags, buffer,
-			     &lname, &info);
+	error = path_name(OP_LINK, label, &link,
+			  labels_profile(label)->path_flags, buffer,
+			  &lname, &cond, request, false);
 	if (error)
-		goto err;
+		goto out;
 
 	/* buffer2 freed below, tname is pointer in buffer2 */
-	error = aa_path_name(&target, labels_profile(label)->path_flags,
-			     buffer2, &tname, &info);
+	error = path_name(OP_LINK, label, &target,
+			  labels_profile(label)->path_flags, buffer2, &tname,
+			  &cond, request, false);
 	if (error)
-		goto err;
+		goto out;
 
 	label_for_each_confined(i, label, profile) {
 		int e = -EACCES;
@@ -457,18 +472,12 @@ out:
 	put_buffers(buffer, buffer2);
 
 	return error;
-
-err:
-	error = fn_for_each_confined(label, profile,
-			aa_audit_file(profile, &lperms, OP_LINK, request,
-				      lname, tname, cond.uid, info, error));
-	goto out;
 }
 
 /**
  * aa_file_perm - do permission revalidation check & audit for @file
  * @op: operation being checked
- * @label: profile being enforced   (NOT NULL)
+ * @label: label being enforced   (NOT NULL)
  * @file: file to revalidate access permissions on  (NOT NULL)
  * @request: requested permissions
  *
@@ -477,11 +486,110 @@ err:
 int aa_file_perm(int op, struct aa_label *label, struct file *file,
 		 u32 request)
 {
+	struct aa_file_cxt *fcxt;
+	struct aa_profile *profile;
+	struct aa_label *flabel, *l, *old;
+	struct file_perms perms = {};
 	struct path_cond cond = {
 		.uid = file_inode(file)->i_uid,
 		.mode = file_inode(file)->i_mode
 	};
+	const char *name;
+	char *buffer;
+	u32 denied;
+	int i, j, flags, error = 0;
 
-	return aa_path_perm(op, label, &file->f_path, PATH_DELEGATE_DELETED,
-			    request, &cond);
+	AA_BUG(!label);
+	AA_BUG(!file);
+
+	fcxt = file_cxt(file);
+
+	rcu_read_lock();
+	flabel  = rcu_dereference(fcxt->label);
+	AA_BUG(!flabel);
+
+	/* revalidate access, if task is unconfined, or the cached cred
+	 * doesn't match or if the request is for more permissions than
+	 * was granted.
+	 *
+	 * Note: the test for !unconfined(flabel) is to handle file
+	 *       delegation from unconfined tasks
+	 */
+	if (unconfined(label) || unconfined(flabel))
+		goto done;
+	denied = request & ~fcxt->allow;
+	if (!denied && aa_label_is_subset(flabel, label))
+		goto done;
+
+	/* TODO: fix path lookup flags */
+	flags = PATH_DELEGATE_DELETED | labels_profile(label)->path_flags |
+		(S_ISDIR(cond.mode) ? PATH_IS_DIR : 0);
+	__get_buffers(buffer);
+	error = path_name(op, label, &file->f_path, flags, buffer, &name, &cond,
+			  request, true);
+	if (error) {
+		if (error == 1) {
+			/* Access to open files that are deleted are
+			 * given a pass (implicit delegation)
+			 */
+			/* TODO not needed when full perms cached ???? */
+			perms.allow = request;
+			spin_lock(&fcxt->lock);
+			goto update_perm;
+		}
+		goto out;
+	}
+
+	if (denied) {
+		/* expanding cached perms need to check both label and flabel */
+		/* TODO: cache full perms so this only happens because of
+		 * conditionals */
+		label_for_each_in_merge(i, j, flabel, label, profile) {
+			int e = path_perm(op, profile, name, request, &cond,
+					  &perms);
+			if (e)
+				error = e;
+		}
+	} else {
+		/* are we revalidating just because the label was out of date?*/
+		if (flabel == label)
+			goto update;
+
+		label_for_each_not_in_set(i, j, flabel, label, profile) {
+			int e = path_perm(op, profile, name, request, &cond,
+					  &perms);
+			if (e)
+				error = e;
+		}
+	}
+	if (error)
+		goto out;
+
+update:
+	/* update caching of label on file_cxt */
+	spin_lock(&fcxt->lock);
+	old = rcu_dereference_protected(fcxt->label,
+					spin_is_locked(&fcxt->lock));
+	l = aa_label_merge(old, label, GFP_ATOMIC);
+	if (!l)
+		goto unlock;
+	if (l != old) {
+		rcu_assign_pointer(fcxt->label, l);
+		aa_put_label(old);
+	} else
+		aa_put_label(l);
+
+update_perm:
+	fcxt->allow |= request;
+
+unlock:
+	spin_unlock(&fcxt->lock);
+
+out:
+	__put_buffers(buffer);
+
+done:
+	rcu_read_unlock();
+
+	return error;
 }

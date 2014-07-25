@@ -179,6 +179,11 @@ int aa_label_next_confined(struct aa_label *l, int i);
 	     ((P) = aa_label_next_in_merge((A), &(I), (B), &(J)));\
 	     )
 
+#define label_for_each_not_in_set(I, J, SET, SUB, P)			\
+	for ((I) = (J) = 0;						\
+	     ((P) = aa_label_next_not_in_set((SET), &(I), (SUB), &(J)));\
+	     )
+
 #define fn_for_each_XXX(L, P, FN, ...)			\
 ({							\
 	int i, __E = 0;					\
@@ -204,6 +209,9 @@ void aa_label_kref(struct kref *kref);
 bool aa_label_init(struct aa_label *label, int size);
 struct aa_label *aa_label_alloc(int size, gfp_t gfp);
 
+bool aa_label_is_subset(struct aa_label *set, struct aa_label *sub);
+struct aa_profile * aa_label_next_not_in_set(struct aa_label *set, int *i,
+					     struct aa_label *sub, int *j);
 bool aa_label_remove(struct aa_labelset *ls, struct aa_label *label);
 struct aa_label *aa_label_insert(struct aa_labelset *ls, struct aa_label *l);
 struct aa_label *aa_label_remove_and_insert(struct aa_labelset *ls,

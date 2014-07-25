@@ -127,6 +127,62 @@ static bool label_profiles_unconfined(struct aa_label *label)
 	return true;
 }
 
+static int profile_cmp(struct aa_profile *a, struct aa_profile *b);
+/**
+ * aa_label_next_not_in_set - return the next profile of @sub not in @set
+ * @set: label to test against
+ * @sub: label to if is subset of @set
+ *
+ * Returns: profile in @sub that is not in @set
+ *     else NULL if @sub is a subset of @set
+ */
+struct aa_profile * aa_label_next_not_in_set(struct aa_label *set, int *i,
+					     struct aa_label *sub, int *j)
+{
+	AA_BUG(!set);
+	AA_BUG(!i);
+	AA_BUG(*i < 0);
+	AA_BUG(*i > set->size);
+	AA_BUG(!sub);
+	AA_BUG(!j);
+	AA_BUG(*j < 0);
+	AA_BUG(*j > sub->size);
+
+	while (*j < sub->size && *i < set->size) {
+		int res = profile_cmp(sub->ent[*j], set->ent[*i]);
+		if (res == 0) {
+			(*j)++;
+			(*i)++;
+		} else if (res > 0)
+			(*i)++;
+		else
+			return sub->ent[(*j)++];
+	}
+
+	if (*j < sub->size)
+		return sub->ent[(*j)++];
+
+	return NULL;
+}
+
+/**
+ * aa_label_is_subset - test if @sub is a subset of @set
+ * @set: label to test against
+ * @sub: label to test if is subset of @set
+ *
+ * Returns: true if @sub is subset of @set
+ *     else false
+ */
+bool aa_label_is_subset(struct aa_label *set, struct aa_label *sub)
+{
+	int i = 0, j = 0;
+
+	if (sub == set)
+		return true;
+
+	return aa_label_next_not_in_set(set, &i, sub, &j) == NULL;
+}
+
 void aa_label_destroy(struct aa_label *label)
 {
 	AA_BUG(!label);

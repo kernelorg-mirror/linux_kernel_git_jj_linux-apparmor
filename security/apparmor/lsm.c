@@ -411,7 +411,6 @@ static int apparmor_file_open(struct file *file, const struct cred *cred)
 	}
 
 	label = aa_cred_label(cred);
-AA_BUG(label != rcu_access_pointer(fcxt->label));
 	if (!unconfined(label)) {
 		struct inode *inode = file_inode(file);
 		struct path_cond cond = { inode->i_uid, inode->i_mode };
@@ -442,31 +441,15 @@ static void apparmor_file_free_security(struct file *file)
 
 static int common_file_perm(int op, struct file *file, u32 mask)
 {
-	struct aa_file_cxt *fcxt = file_cxt(file);
-	struct aa_label *label, *flabel;
-	int check, error = 0;
+	struct aa_label *label;
+	int error = 0;
 
 	if (!file->f_path.mnt ||
 	    !mediated_filesystem(file_inode(file)))
 		return 0;
 
-	rcu_read_lock();
-	flabel  = rcu_dereference(fcxt->label);
-	AA_BUG(!flabel);
 	label = __aa_get_current_label();
-
-	/* revalidate access, if task is unconfined, or the cached cred
-	 * doesn't match or if the request is for more permissions than
-	 * was granted.
-	 *
-	 * Note: the test for !unconfined(flabel) is to handle file
-	 *       delegation from unconfined tasks
-	 */
-	check = (!unconfined(label) && !unconfined(flabel) &&
-		 ((flabel != label) || (mask & ~fcxt->allow)));
-	rcu_read_unlock();
-	if (check)
-		error = aa_file_perm(op, label, file, mask);
+	error = aa_file_perm(op, label, file, mask);
 	__aa_put_current_label(label);
 
 	return error;
