@@ -93,7 +93,7 @@ int aa_label_next_confined(struct aa_label *l, int i)
 	return i;
 }
 
-static bool profile_in_label(struct aa_profile *profile, struct aa_label *l)
+static int label_profile_pos(struct aa_label *l, struct aa_profile *profile)
 {
 	struct aa_profile *p;
 	int i;
@@ -103,10 +103,15 @@ static bool profile_in_label(struct aa_profile *profile, struct aa_label *l)
 
 	label_for_each(i, l, p) {
 		if (p == profile)
-			return true;
+			return i;
 	}
 
-	return false;
+	return -1;
+}
+
+static bool profile_in_label(struct aa_profile *profile, struct aa_label *l)
+{
+	return label_profile_pos(l, profile) != -1;
 }
 
 static bool label_profiles_unconfined(struct aa_label *label)
@@ -304,6 +309,36 @@ static bool __aa_label_replace(struct aa_labelset *ls, struct aa_label *old,
 
 static struct aa_label *__aa_label_insert(struct aa_labelset *ls,
 					  struct aa_label *l);
+
+static struct aa_label *__aa_label_remove_and_insert(struct aa_labelset *ls,
+						     struct aa_label *remove,
+						     struct aa_label *insert)
+{
+	AA_BUG(!ls);
+	AA_BUG(!remove);
+	AA_BUG(!insert);
+	AA_BUG(write_can_lock(&ls->lock));
+	AA_BUG(labels_set(remove) != ls);
+	AA_BUG(insert->flags & FLAG_IN_TREE);
+
+	__aa_label_remove(ls, remove);
+	return __aa_label_insert(ls, insert);
+}
+
+struct aa_label *aa_label_remove_and_insert(struct aa_labelset *ls,
+					    struct aa_label *remove,
+					    struct aa_label *insert)
+{
+	unsigned long flags;
+	struct aa_label *l;
+
+	write_lock_irqsave(&ls->lock, flags);
+	l = __aa_label_remove_and_insert(ls, remove, insert);
+	write_unlock_irqrestore(&ls->lock, flags);
+
+	return l;
+}
+
 /**
  * aa_label_replace - replace a label @old with a new version @new
  * @ls: labelset being manipulated
@@ -1445,61 +1480,165 @@ void aa_labelset_init(struct aa_labelset *ls)
 	labelstats_init(&ls);
 }
 
-/**
- * label_invalidate_labelset - invalidate labels caused to be invalid by @l
- * @ls: labelset to invalidate (NOT NULL)
- * @p: profile that is invalid and causing the invalidation (NOT NULL)
- *
- * Takes invalidated label @l and invalidates all labels in the labelset
- * of @l that contain the invalid profiles in @l that caused @l to become
- * invalid
- */
-static void labelset_invalidate(struct aa_labelset *ls, struct aa_profile *p)
+static struct aa_label *labelset_next_invalid(struct aa_labelset *ls)
 {
-	unsigned long flags;
+	struct aa_label *label;
 	struct rb_node *node;
+	unsigned long flags;
 
 	AA_BUG(!ls);
-	AA_BUG(!p);
 
-	write_lock_irqsave(&ls->lock, flags);
+	read_lock_irqsave(&ls->lock, flags);
 
 	__labelset_for_each(ls, node) {
-		struct aa_label *label = rb_entry(node, struct aa_label, node);
-		if (profile_in_label(p, label)) {
-			__label_invalidate(label);
-			/* TODO: replace invalidated label */
+		struct aa_profile *p;
+		int i;
+
+		label = rb_entry(node, struct aa_label, node);
+		if (label_invalid(label))
+			goto out;
+
+		label_for_each(i, label, p) {
+			if (PROFILE_INVALID(p))
+				goto out;
 		}
 	}
+	label = NULL;
 
-	labelstats_inc(invalid);
-	labelstats_inc(invalid_intree);
+out:
+	aa_get_label(label);
+	read_unlock_irqrestore(&ls->lock, flags);
 
-	write_unlock_irqrestore(&ls->lock, flags);
+	return label;
+}
+
+/**
+ * __label_update - insert updated version of @label into labelset
+ * @label - the label to update/repace
+ *
+ * Returns: new label that is up to date
+ *     else NULL on failure
+ *
+ * Requires: @ns lock be held
+ *
+ * Note: worst case is the stale @label does not get updated and has
+ *       to be updated at a later time.
+ */
+static struct aa_label *__label_update(struct aa_label *label)
+{
+	struct aa_label *l, *tmp;
+	struct aa_profile *p;
+	int i, invcount = 0;
+
+	AA_BUG(!label);
+	AA_BUG(!mutex_is_locked(&labels_ns(label)->lock));
+
+	l = aa_label_alloc(label->size, GFP_KERNEL);
+	if (!l)
+		return NULL;
+
+	if (!label->replacedby) {
+		struct aa_replacedby *r = aa_alloc_replacedby(l);
+		if (!r) {
+			aa_put_label(l);
+			return NULL;
+		}
+		label->replacedby = r;
+	}
+	l->replacedby = aa_get_replacedby(label->replacedby);
+	__aa_update_replacedby(label, l);
+
+	label_for_each(i, label, p) {
+		if (PROFILE_INVALID(p)) {
+			l->ent[i] = aa_get_newest_profile(p);
+			if (&l->ent[i]->label.replacedby != &p->label.replacedby)
+				invcount++;
+		} else
+			l->ent[i] = aa_get_profile(p);
+	}
+
+	/* updated label invalidated by being removed/renamed from labelset */
+	if (invcount) {
+		i = aa_sort_and_merge_profiles(l->size, &l->ent[0]);
+		l->size -= i;
+
+		if (labels_set(label) == labels_set(l)) {
+			struct aa_labelset *ls = labels_set(label);
+			tmp = aa_label_remove_and_insert(ls, label, l);
+//??? this needs to be able to fail
+			AA_BUG(tmp != l);
+			aa_put_label(tmp);
+		} else {
+			aa_label_remove(labels_set(label), label);
+			tmp = aa_label_insert(labels_set(l), l);
+//??? this needs to be able to fail
+			AA_BUG(tmp != l);
+			aa_put_label(tmp);
+		}
+	} else {
+		AA_BUG(labels_ns(label) != labels_ns(l));
+		aa_label_replace(labels_set(label), label, l);
+	}
+
+	return l;
+
+//??? replacedby should be updated atomically ???
+fail:
+	aa_label_free(l);
+	return NULL;
+}
+
+/**
+ * __labelset_update - invalidate and update labels in @ns
+ * @ns: namespace to update and invalidate labels in  (NOT NULL)
+ *
+ * Requires: @ns lock be held
+ *
+ * Walk the labelset ensuring that all labels are up to date and valid
+ * Any label that is outdated is replaced and by an updated version
+ * invalidated and removed from the tree.
+ *
+ * If failures happen due to memory pressures then stale labels will
+ * be left in place until the next pass.
+ */
+static void __labelset_update(struct aa_namespace *ns)
+{
+	struct aa_label *label;
+
+	AA_BUG(!ns);
+	AA_BUG(!mutex_is_locked(&ns->lock));
+
+	do {
+		label = labelset_next_invalid(&ns->labels);
+		if (label) {
+			struct aa_label *l;
+			l = __label_update(label);
+			aa_put_label(l);
+			aa_put_label(label);
+		}
+	} while (label);
 }
 
 /**
  * __aa_labelset_invalidate_all - invalidate labels in @ns and below
  * @ns: ns to start invalidation at (NOT NULL)
- * @p: profile that is causing invalidation (NOT NULL)
  *
  * Requires: @ns lock be held
  *
  * Invalidates labels based on @p in @ns and any children namespaces.
 */
-void __aa_labelset_invalidate_all(struct aa_namespace *ns, struct aa_profile *p)
+void __aa_labelset_update_all(struct aa_namespace *ns)
 {
 	struct aa_namespace *child;
 
 	AA_BUG(!ns);
-	AA_BUG(!p);
 	AA_BUG(!mutex_is_locked(&ns->lock));
 
-	labelset_invalidate(&ns->labels, p);
+	__labelset_update(ns);
 
 	list_for_each_entry(child, &ns->sub_ns, base.list) {
 		mutex_lock(&child->lock);
-		__aa_labelset_invalidate_all(child, p);
+		__aa_labelset_update_all(child);
 		mutex_unlock(&child->lock);
 	}
 }

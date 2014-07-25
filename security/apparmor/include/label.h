@@ -196,8 +196,7 @@ int aa_label_next_confined(struct aa_label *l, int i);
 
 void aa_labelset_destroy(struct aa_labelset *ls);
 void aa_labelset_init(struct aa_labelset *ls);
-void __aa_labelset_invalidate_all(struct aa_namespace *ns,
-				  struct aa_profile *p);
+void __aa_labelset_update_all(struct aa_namespace *ns);
 
 void aa_label_destroy(struct aa_label *label);
 void aa_label_free(struct aa_label *label);
@@ -207,6 +206,9 @@ struct aa_label *aa_label_alloc(int size, gfp_t gfp);
 
 bool aa_label_remove(struct aa_labelset *ls, struct aa_label *label);
 struct aa_label *aa_label_insert(struct aa_labelset *ls, struct aa_label *l);
+struct aa_label *aa_label_remove_and_insert(struct aa_labelset *ls,
+					    struct aa_label *remove,
+					    struct aa_label *insert);
 bool aa_label_replace(struct aa_labelset *ls, struct aa_label *old,
 		      struct aa_label *new);
 bool aa_label_make_newest(struct aa_labelset *ls, struct aa_label *old,

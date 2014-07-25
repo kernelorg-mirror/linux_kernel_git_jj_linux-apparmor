@@ -1270,7 +1270,6 @@ ssize_t aa_replace_profiles(void *udata, size_t size, bool noreplace)
 			__replace_profile(ent->old, ent->new, 1);
 			aa_label_replace(&ns->labels, &ent->old->label,
 					 &ent->new->label);
-			__aa_labelset_invalidate_all(ns, ent->old);
 			if (ent->rename) {
 				/* aafs interface uses replacedby */
 				rcu_assign_pointer(ent->new->label.replacedby->label,
@@ -1297,6 +1296,7 @@ ssize_t aa_replace_profiles(void *udata, size_t size, bool noreplace)
 		}
 		aa_load_ent_free(ent);
 	}
+	__aa_labelset_update_all(ns);
 	mutex_unlock(&ns->lock);
 
 out:
@@ -1376,7 +1376,7 @@ ssize_t aa_remove_profiles(char *fqname, size_t size)
 		}
 		name = profile->base.hname;
 		__remove_profile(profile);
-		__aa_labelset_invalidate_all(ns, profile);
+		__aa_labelset_update_all(ns);
 		mutex_unlock(&ns->lock);
 	}
 
