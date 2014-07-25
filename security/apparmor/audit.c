@@ -167,6 +167,11 @@ static void audit_pre(struct audit_buffer *ab, void *ca)
 void aa_audit_msg(int type, struct common_audit_data *sa,
 		  void (*cb) (struct audit_buffer *, void *))
 {
+	/* TODO: redirect messages for profile to the correct ns
+	 *       rejects from subns should goto the audit associated
+	 *       with it, and audits from parent ns should got ns
+	 *       associated with it
+	 */
 	aad(sa)->type = type;
 	common_lsm_audit(sa, audit_pre, cb);
 }
