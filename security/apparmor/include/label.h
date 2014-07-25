@@ -126,6 +126,10 @@ struct aa_replacedby {
 	struct aa_label __rcu *label;
 };
 
+struct label_it {
+	int i, j;
+};
+
 /* struct aa_label - lazy labeling struct
  * @count: ref count of active users
  * @node: rbtree position
@@ -168,55 +172,57 @@ struct aa_label {
 int aa_label_next_confined(struct aa_label *l, int i);
 
 /* for each profile in a label */
-#define label_for_each(I, L, P)				\
-	for ((I) = 0; ((P) = (L)->ent[(I)]); ++(I))
+#define label_for_each(I, L, P)						\
+	for ((I).i = 0; ((P) = (L)->ent[(I).i]); ++((I).i))
 
-#define label_for_each_at(I, L, P)			\
-	for (;						\
-	     (I) < (L)->size && ((P) = (L)->ent[(I)]);	\
-	     ++(I))
+#define label_for_each_at(I, L, P)					\
+	for (;								\
+	     (I).i < (L)->size && ((P) = (L)->ent[(I).i]);		\
+	     ++((I).i))
 
 /* for each profile that is enforcing confinement in a label */
-#define label_for_each_confined(I, L, P)		\
-	for ((I) = aa_label_next_confined((L), 0);	\
-	     ((P) = (L)->ent[(I)]);			\
-	     (I) = aa_label_next_confined((L), I + 1))
+#define label_for_each_confined(I, L, P)				\
+	for ((I).i = aa_label_next_confined((L), 0);			\
+	     ((P) = (L)->ent[(I).i]);					\
+	     (I).i = aa_label_next_confined((L), (I).i + 1))
 
-#define label_for_each_in_merge(I, J, A, B, P)			  \
-	for ((I) = (J) = 0;					  \
-	     ((P) = aa_label_next_in_merge((A), &(I), (B), &(J)));\
+#define label_for_each_in_merge(I, A, B, P)				\
+	for ((I).i = (I).j = 0;						\
+	     ((P) = aa_label_next_in_merge(&(I), (A), (B)));		\
 	     )
 
-#define label_for_each_not_in_set(I, J, SET, SUB, P)			\
-	for ((I) = (J) = 0;						\
-	     ((P) = aa_label_next_not_in_set((SET), &(I), (SUB), &(J)));\
+#define label_for_each_not_in_set(I, SET, SUB, P)			\
+	for ((I).i = (I).j = 0;						\
+	     ((P) = aa_label_next_not_in_set(&(I), (SET), (SUB)));	\
 	     )
 
-#define fn_for_each_XXX(L, P, FN, ...)			\
-({							\
-	int i, __E = 0;					\
-	label_for_each ## __VA_ARGS__ (i, (L), (P)) {	\
-		int e = (FN);				\
-		if (e)					\
-			__E = e;			\
-	}						\
-	__E;						\
+#define fn_for_each_XXX(L, P, FN, ...)					\
+({									\
+	struct label_it i;						\
+	int __E = 0;							\
+	label_for_each ## __VA_ARGS__ (i, (L), (P)) {			\
+		int e = (FN);						\
+		if (e)							\
+			__E = e;					\
+	}								\
+	__E;								\
 })
 
 #define fn_for_each(L, P, FN) fn_for_each_XXX(L, P, FN)
 #define fn_for_each_confined(L, P, FN) fn_for_each_XXX(L, P, FN, _confined)
 
-#define LABEL_MEDIATES(L, C)				\
-({							\
-	struct aa_profile *profile;			\
-	int i, ret = 0;					\
-	label_for_each(i, (L), profile) {		\
-		if (PROFILE_MEDIATES(profile, (C))) {	\
-			ret = 1;			\
-			break;				\
-		}					\
-	}						\
-	ret;						\
+#define LABEL_MEDIATES(L, C)						\
+({									\
+	struct aa_profile *profile;					\
+	struct label_it i;						\
+	int ret = 0;							\
+	label_for_each(i, (L), profile) {				\
+		if (PROFILE_MEDIATES(profile, (C))) {			\
+			ret = 1;					\
+			break;						\
+		}							\
+	}								\
+	ret;								\
 })
 
 void aa_labelset_destroy(struct aa_labelset *ls);
@@ -230,8 +236,9 @@ bool aa_label_init(struct aa_label *label, int size);
 struct aa_label *aa_label_alloc(int size, gfp_t gfp);
 
 bool aa_label_is_subset(struct aa_label *set, struct aa_label *sub);
-struct aa_profile * aa_label_next_not_in_set(struct aa_label *set, int *i,
-					     struct aa_label *sub, int *j);
+struct aa_profile * aa_label_next_not_in_set(struct label_it *I,
+					     struct aa_label *set,
+					     struct aa_label *sub);
 bool aa_label_remove(struct aa_labelset *ls, struct aa_label *label);
 struct aa_label *aa_label_insert(struct aa_labelset *ls, struct aa_label *l);
 struct aa_label *aa_label_remove_and_insert(struct aa_labelset *ls,
@@ -244,8 +251,9 @@ bool aa_label_make_newest(struct aa_labelset *ls, struct aa_label *old,
 
 struct aa_label *aa_label_find(struct aa_labelset *ls, struct aa_label *l);
 
-struct aa_profile *aa_label_next_in_merge(struct aa_label *a, int *i,
-					  struct aa_label *b, int *j);
+struct aa_profile *aa_label_next_in_merge(struct label_it *I,
+					  struct aa_label *a,
+					  struct aa_label *b);
 struct aa_label *aa_label_find_merge(struct aa_label *a, struct aa_label *b);
 struct aa_label *aa_label_merge(struct aa_label *a, struct aa_label *b,
 				gfp_t gfp);

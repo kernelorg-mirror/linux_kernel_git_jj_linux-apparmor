@@ -218,7 +218,7 @@ static ssize_t query_label(char *buf, size_t buf_len,
 	size_t label_name_len, match_len;
 	u32 allow = 0, audit = 0, quiet = 0;
 	unsigned int state = 0;
-	int i;
+	struct label_it i;
 
 	if (!query_len)
 		return -EINVAL;

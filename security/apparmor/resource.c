@@ -130,7 +130,7 @@ void __aa_transition_rlimits(struct aa_label *old_l, struct aa_label *new_l)
 	unsigned int mask = 0;
 	struct rlimit *rlim, *initrlim;
 	struct aa_profile *old, *new;
-	int i;
+	struct label_it i;
 
 	old = labels_profile(old_l);
 	new = labels_profile(new_l);

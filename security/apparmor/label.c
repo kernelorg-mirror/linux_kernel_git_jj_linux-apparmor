@@ -96,14 +96,14 @@ int aa_label_next_confined(struct aa_label *l, int i)
 static int label_profile_pos(struct aa_label *l, struct aa_profile *profile)
 {
 	struct aa_profile *p;
-	int i;
+	struct label_it i;
 
 	AA_BUG(!profile);
 	AA_BUG(!l);
 
 	label_for_each(i, l, p) {
 		if (p == profile)
-			return i;
+			return i.i;
 	}
 
 	return -1;
@@ -117,7 +117,7 @@ static bool profile_in_label(struct aa_profile *profile, struct aa_label *l)
 static bool label_profiles_unconfined(struct aa_label *label)
 {
 	struct aa_profile *profile;
-	int i;
+	struct label_it i;
 
 	label_for_each(i, label, profile) {
 		if (!profile_unconfined(profile))
@@ -130,37 +130,38 @@ static bool label_profiles_unconfined(struct aa_label *label)
 static int profile_cmp(struct aa_profile *a, struct aa_profile *b);
 /**
  * aa_label_next_not_in_set - return the next profile of @sub not in @set
+ * @I: label iterator
  * @set: label to test against
  * @sub: label to if is subset of @set
  *
  * Returns: profile in @sub that is not in @set
  *     else NULL if @sub is a subset of @set
  */
-struct aa_profile * aa_label_next_not_in_set(struct aa_label *set, int *i,
-					     struct aa_label *sub, int *j)
+struct aa_profile * aa_label_next_not_in_set(struct label_it *I,
+					     struct aa_label *set,
+					     struct aa_label *sub)
 {
 	AA_BUG(!set);
-	AA_BUG(!i);
-	AA_BUG(*i < 0);
-	AA_BUG(*i > set->size);
+	AA_BUG(!I);
+	AA_BUG(I->i < 0);
+	AA_BUG(I->i > set->size);
 	AA_BUG(!sub);
-	AA_BUG(!j);
-	AA_BUG(*j < 0);
-	AA_BUG(*j > sub->size);
+	AA_BUG(I->j < 0);
+	AA_BUG(I->j > sub->size);
 
-	while (*j < sub->size && *i < set->size) {
-		int res = profile_cmp(sub->ent[*j], set->ent[*i]);
+	while (I->j < sub->size && I->i < set->size) {
+		int res = profile_cmp(sub->ent[I->j], set->ent[I->i]);
 		if (res == 0) {
-			(*j)++;
-			(*i)++;
+			(I->j)++;
+			(I->i)++;
 		} else if (res > 0)
-			(*i)++;
+			(I->i)++;
 		else
-			return sub->ent[(*j)++];
+			return sub->ent[(I->j)++];
 	}
 
-	if (*j < sub->size)
-		return sub->ent[(*j)++];
+	if (I->j < sub->size)
+		return sub->ent[(I->j)++];
 
 	return NULL;
 }
@@ -175,12 +176,12 @@ struct aa_profile * aa_label_next_not_in_set(struct aa_label *set, int *i,
  */
 bool aa_label_is_subset(struct aa_label *set, struct aa_label *sub)
 {
-	int i = 0, j = 0;
+	struct label_it i = { };
 
 	if (sub == set)
 		return true;
 
-	return aa_label_next_not_in_set(set, &i, sub, &j) == NULL;
+	return aa_label_next_not_in_set(&i, set, sub) == NULL;
 }
 
 void aa_label_destroy(struct aa_label *label)
@@ -192,7 +193,7 @@ void aa_label_destroy(struct aa_label *label)
 
 	if (!label_isprofile(label)) {
 		struct aa_profile *profile;
-		int i;
+		struct label_it i;
 
 		aa_put_str(label->hname);
 
@@ -645,40 +646,39 @@ struct aa_label *aa_label_insert(struct aa_labelset *ls, struct aa_label *l)
 
 /**
  * aa_label_next_in_merge - find the next profile when merging @a and @b
+ * @I: label iterator
  * @a: label to merge
- * @i: index into @a's profiles. Should be set to 0 for first call
  * @b: label to merge
- * @j: index into @b's profiles. Should be set to 0 for first call
  *
  * Returns: next profile
  *     else null if no more profiles
  */
-struct aa_profile *aa_label_next_in_merge(struct aa_label *a, int *i,
-					  struct aa_label *b, int *j)
+struct aa_profile *aa_label_next_in_merge(struct label_it *I,
+					  struct aa_label *a,
+					  struct aa_label *b)
 {
 	AA_BUG(!a);
 	AA_BUG(!b);
-	AA_BUG(!i);
-	AA_BUG(*i < 0);
-	AA_BUG(*i > a->size);
-	AA_BUG(!j);
-	AA_BUG(*j < 0);
-	AA_BUG(*j > b->size);
+	AA_BUG(!I);
+	AA_BUG(I->i < 0);
+	AA_BUG(I->i > a->size);
+	AA_BUG(I->j < 0);
+	AA_BUG(I->j > b->size);
 
-	if (*i < a->size) {
-		if (*j < b->size) {
-			int res = profile_cmp(a->ent[*i], b->ent[*j]);
+	if (I->i < a->size) {
+		if (I->j < b->size) {
+			int res = profile_cmp(a->ent[I->i], b->ent[I->j]);
 			if (res > 0)
-				return b->ent[(*j)++];
+				return b->ent[(I->j)++];
 			if (res == 0)
-				(*j)++;
+				(I->j)++;
 		}
 
-		return a->ent[(*i)++];
+		return a->ent[(I->i)++];
 	}
 
-	if (*j < b->size)
-		return b->ent[(*j)++];
+	if (I->j < b->size)
+		return b->ent[(I->j)++];
 
 	return NULL;
 }
@@ -698,15 +698,16 @@ struct aa_profile *aa_label_next_in_merge(struct aa_label *a, int *i,
 static int label_merge_cmp(struct aa_label *a, struct aa_label *b,
                            struct aa_label *z)
 {
-	int i, j, k;
 	struct aa_profile *p = NULL;
+	struct label_it i = { };
+	int k;
 
 	AA_BUG(!a);
 	AA_BUG(!b);
 	AA_BUG(!z);
 
-	for (i = j = k = 0;
-	     k < z->size && (p = aa_label_next_in_merge(a, &i, b, &j));
+	for (k = 0;
+	     k < z->size && (p = aa_label_next_in_merge(&i, a, b));
 	     k++) {
 		int res = profile_cmp(p, z->ent[k]);
 
@@ -813,7 +814,8 @@ static struct aa_label *__label_merge(struct aa_label *l, struct aa_label *a,
 				      struct aa_label *b)
 {
 	struct aa_profile *next;
-	int i, j, k = 0, invcount = 0;
+	struct label_it i;
+	int k = 0, invcount = 0;
 
 	AA_BUG(!a);
 	AA_BUG(a->size < 0);
@@ -825,7 +827,7 @@ static struct aa_label *__label_merge(struct aa_label *l, struct aa_label *a,
 	if (a == b)
 		return aa_get_label(a);
 
-	label_for_each_in_merge(i, j, a, b, next) {
+	label_for_each_in_merge(i, a, b, next) {
 		if (PROFILE_INVALID(next)) {
 			l->ent[k] = aa_get_newest_profile(next);
 			if (next->label.replacedby !=
@@ -840,8 +842,7 @@ static struct aa_label *__label_merge(struct aa_label *l, struct aa_label *a,
 	l->ent[k] = NULL;
 
 	if (invcount) {
-		i = aa_sort_and_merge_profiles(l->size, &l->ent[0]);
-		l->size -= i;
+		l->size -= aa_sort_and_merge_profiles(l->size, &l->ent[0]);
 		if (label_profiles_unconfined(l))
 			l->flags |= FLAG_UNCONFINED;
 	} else {
@@ -1097,7 +1098,8 @@ static int aa_modename_snprint(char *str, size_t size, struct aa_namespace *ns,
 			       struct aa_label *label)
 {
 	struct aa_profile *profile;
-	int i, total = 0;
+	struct label_it i;
+	int total = 0;
 	size_t len;
 
 	label_for_each(i, label, profile) {
@@ -1134,7 +1136,8 @@ static int aa_modechr_snprint(char *str, size_t size, struct aa_namespace *ns,
 			      struct aa_label *label)
 {
 	struct aa_profile *profile;
-	int i, total = 0;
+	struct label_it i;
+	int total = 0;
 	size_t len;
 
 	len = snprintf(str, size, "(");
@@ -1173,7 +1176,7 @@ static int aa_mode_snprint(char *str, size_t size, struct aa_namespace *ns,
 			   struct aa_label *label, int count)
 {
 	struct aa_profile *profile;
-	int i;
+	struct label_it i;
 
 	if (count <= 0) {
 		count = 0;
@@ -1253,7 +1256,8 @@ int aa_label_snprint(char *str, size_t size, struct aa_namespace *ns,
 		     struct aa_label *label, bool mode)
 {
 	struct aa_profile *profile;
-	int i, count = 0, total = 0;
+	struct label_it i;
+	int count = 0, total = 0;
 	size_t len;
 
 	AA_BUG(!str && size != 0);
@@ -1548,7 +1552,7 @@ static struct aa_label *labelset_next_invalid(struct aa_labelset *ls)
 
 	__labelset_for_each(ls, node) {
 		struct aa_profile *p;
-		int i;
+		struct label_it i;
 
 		label = rb_entry(node, struct aa_label, node);
 		if (label_invalid(label))
@@ -1584,7 +1588,8 @@ static struct aa_label *__label_update(struct aa_label *label)
 {
 	struct aa_label *l, *tmp;
 	struct aa_profile *p;
-	int i, invcount = 0;
+	struct label_it i;
+	int invcount = 0;
 
 	AA_BUG(!label);
 	AA_BUG(!mutex_is_locked(&labels_ns(label)->lock));
@@ -1606,17 +1611,16 @@ static struct aa_label *__label_update(struct aa_label *label)
 
 	label_for_each(i, label, p) {
 		if (PROFILE_INVALID(p)) {
-			l->ent[i] = aa_get_newest_profile(p);
-			if (&l->ent[i]->label.replacedby != &p->label.replacedby)
+			l->ent[i.i] = aa_get_newest_profile(p);
+			if (&l->ent[i.i]->label.replacedby != &p->label.replacedby)
 				invcount++;
 		} else
-			l->ent[i] = aa_get_profile(p);
+			l->ent[i.i] = aa_get_profile(p);
 	}
 
 	/* updated label invalidated by being removed/renamed from labelset */
 	if (invcount) {
-		i = aa_sort_and_merge_profiles(l->size, &l->ent[0]);
-		l->size -= i;
+		l->size -= aa_sort_and_merge_profiles(l->size, &l->ent[0]);
 
 		if (labels_set(label) == labels_set(l)) {
 			struct aa_labelset *ls = labels_set(label);

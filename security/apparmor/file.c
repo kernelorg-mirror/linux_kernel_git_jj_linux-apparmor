@@ -477,9 +477,10 @@ static int __file_path_perm(int op, struct aa_label *label,
 		.uid = file_inode(file)->i_uid,
 		.mode = file_inode(file)->i_mode
 	};
+	struct label_it i;
 	const char *name;
 	char *buffer;
-	int i, j, flags, error;
+	int flags, error;
 
 	/* TODO: fix path lookup flags */
 	flags = PATH_DELEGATE_DELETED | labels_profile(label)->path_flags |
@@ -501,7 +502,7 @@ static int __file_path_perm(int op, struct aa_label *label,
 		/* expanding cached perms need to check both label and flabel */
 		/* TODO: cache full perms so this only happens because of
 		 * conditionals */
-		label_for_each_in_merge(i, j, flabel, label, profile) {
+		label_for_each_in_merge(i, flabel, label, profile) {
 			int e = path_perm(op, profile, name, request, &cond,
 					  &perms);
 			if (e)
@@ -512,7 +513,7 @@ static int __file_path_perm(int op, struct aa_label *label,
 		if (flabel == label)
 			goto out;
 
-		label_for_each_not_in_set(i, j, flabel, label, profile) {
+		label_for_each_not_in_set(i, flabel, label, profile) {
 			int e = path_perm(op, profile, name, request, &cond,
 					  &perms);
 			if (e)

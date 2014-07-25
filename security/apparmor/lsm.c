@@ -145,7 +145,7 @@ static int apparmor_capget(struct task_struct *target, kernel_cap_t *effective,
 
 	if (!unconfined(label)) {
 		struct aa_profile *profile;
-		int i;
+		struct label_it i;
 		label_for_each_confined(i, label, profile) {
 			if (COMPLAIN_MODE(profile))
 				continue;

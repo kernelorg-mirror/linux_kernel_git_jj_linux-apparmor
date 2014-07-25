@@ -112,7 +112,8 @@ int aa_net_perm(int op, struct aa_label *label, u16 family, int type,
 {
 	struct aa_profile *profile;
 	u16 family_mask;
-	int i, error = 0;
+	struct label_it i;
+	int error = 0;
 
 	if ((family < 0) || (family >= AF_MAX))
 		return -EINVAL;
