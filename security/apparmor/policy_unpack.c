@@ -71,8 +71,8 @@ struct aa_ext {
 static void audit_cb(struct audit_buffer *ab, void *va)
 {
 	struct common_audit_data *sa = va;
-	if (aad(sa)->iface.target) {
-		struct aa_profile *name = aad(sa)->iface.target;
+	if (aad(sa)->target) {
+		const struct aa_profile *name = aad(sa)->target;
 		audit_log_format(ab, " name=");
 		audit_log_untrustedstring(ab, name->base.hname);
 	}
@@ -97,7 +97,7 @@ static int audit_iface(struct aa_profile *new, const char *name,
 	DEFINE_AUDIT_DATA(sa, LSM_AUDIT_DATA_NONE, 0);
 	if (e)
 		aad(&sa)->iface.pos = e->pos - e->start;
-	aad(&sa)->iface.target = new;
+	aad(&sa)->target = new;
 	aad(&sa)->name = name;
 	aad(&sa)->info = info;
 	aad(&sa)->error = error;

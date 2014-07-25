@@ -75,9 +75,9 @@ static void file_audit_cb(struct audit_buffer *ab, void *va)
 				 from_kuid(&init_user_ns, aad(sa)->fs.ouid));
 	}
 
-	if (aad(sa)->fs.target) {
+	if (aad(sa)->target) {
 		audit_log_format(ab, " target=");
-		audit_log_untrustedstring(ab, aad(sa)->fs.target);
+		audit_log_untrustedstring(ab, aad(sa)->target);
 	}
 }
 
@@ -104,7 +104,7 @@ int aa_audit_file(struct aa_profile *profile, struct file_perms *perms,
 	DEFINE_AUDIT_DATA(sa, LSM_AUDIT_DATA_NONE, op);
 	aad(&sa)->request = request;
 	aad(&sa)->name = name;
-	aad(&sa)->fs.target = target;
+	aad(&sa)->target = target;
 	aad(&sa)->fs.ouid = ouid;
 	aad(&sa)->info = info;
 	aad(&sa)->error = error;

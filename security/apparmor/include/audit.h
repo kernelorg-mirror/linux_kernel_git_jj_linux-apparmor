@@ -113,19 +113,21 @@ struct apparmor_audit_data {
 	u32 request;
 	u32 denied;
 	union {
-		void *target;
 		struct {
-			long pos;
-			void *target;
-		} iface;
+			const void *target;
+			union {
+				struct {
+					long pos;
+				} iface;
+				struct {
+					kuid_t ouid;
+				} fs;
+			};
+		};
 		struct {
 			int rlim;
 			unsigned long max;
 		} rlim;
-		struct {
-			const char *target;
-			kuid_t ouid;
-		} fs;
 	};
 };
 
