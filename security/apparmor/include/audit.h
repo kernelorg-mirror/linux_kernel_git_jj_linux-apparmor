@@ -150,15 +150,15 @@ struct apparmor_audit_data {
 
 /* macros for dealing with  apparmor_audit_data structure */
 #define aad(SA) (SA)->apparmor_audit_data
-#define DEFINE_AUDIT_DATA(NAME, T, X)				\
+#define DEFINE_AUDIT_DATA(NAME, T, X)					\
 	/* TODO: cleanup audit init so we don't need _aad = {0,} */	\
 	struct apparmor_audit_data NAME ## _aad = { .op = (X), };	\
 	struct common_audit_data NAME =					\
 	{								\
 	.type = (T),							\
 	.u.tsk = NULL,							\
-	{ .apparmor_audit_data = &(NAME ## _aad) },			\
-	}
+	};								\
+	NAME.apparmor_audit_data = &(NAME ## _aad)
 
 void aa_audit_msg(int type, struct common_audit_data *sa,
 		  void (*cb) (struct audit_buffer *, void *));
