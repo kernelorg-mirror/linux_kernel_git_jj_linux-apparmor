@@ -176,9 +176,43 @@ int aa_label_next_confined(struct aa_label *l, int i);
 	for ((I).i = 0; ((P) = (L)->ent[(I).i]); ++((I).i))
 
 #define label_for_each_at(I, L, P)					\
-	for (;								\
-	     (I).i < (L)->size && ((P) = (L)->ent[(I).i]);		\
-	     ++((I).i))
+	for (; ((P) = (L)->ent[(I).i]);	++((I).i))
+
+#define next_comb(I, L1, L2)						\
+do {									\
+	(I).j++;							\
+	if ((I).j >= (L2)->size) {					\
+		(I).i++;						\
+		(I).j = 0;						\
+	}								\
+} while (0)
+
+/* TODO: label_for_each_ns_comb */
+
+/* for each combination of P1 in L1, and P2 in L2 */
+#define label_for_each_comb(I, L1, L2, P1, P2)				\
+for ((I).i = (I).j = 0;							\
+     ((P1) = (L1)->ent[(I).i]) && ((P2) = (L2)->ent[(I).j]);		\
+     (I) = next_comb(I, L1, L2))
+
+#define fn_for_each_comb(L1, L2, P1, P2, FN)				\
+({									\
+	struct label_it i;						\
+	int __E = 0;							\
+	label_for_each_comb(i, (L1), (L2), (P1), (P2)) {		\
+		int e = (FN);						\
+		if (e)							\
+			__E = e;					\
+	}								\
+	__E;								\
+})
+
+/* internal cross check */
+//fn_for_each_comb(L1, L2, P1, P2, xcheck(...));
+
+/* external cross check */
+// xcheck(fn_for_each_comb(L1, L2, ...),
+//        fn_for_each_comb(L2, L1, ...));
 
 /* for each profile that is enforcing confinement in a label */
 #define label_for_each_confined(I, L, P)				\
