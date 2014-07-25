@@ -97,7 +97,7 @@ int aa_task_setrlimit(struct aa_label *label, struct task_struct *task,
 {
 	struct aa_profile *profile;
 	struct aa_label *task_label;
-	int i, error = 0;
+	int error = 0;
 
 	rcu_read_lock();
 	task_label = aa_get_newest_cred_label(__task_cred(task));
@@ -140,11 +140,12 @@ void __aa_transition_rlimits(struct aa_label *old_l, struct aa_label *new_l)
 	 */
 	label_for_each_confined(i, old_l, old) {
 		if (old->rlimits.mask) {
-			for (i = 0, mask = 1; i < RLIM_NLIMITS; i++,
+			int j;
+			for (j = 0, mask = 1; j < RLIM_NLIMITS; j++,
 				     mask <<= 1) {
 				if (old->rlimits.mask & mask) {
-					rlim = current->signal->rlim + i;
-					initrlim = init_task.signal->rlim + i;
+					rlim = current->signal->rlim + j;
+					initrlim = init_task.signal->rlim + j;
 					rlim->rlim_cur = min(rlim->rlim_max,
 							    initrlim->rlim_cur);
 				}
@@ -154,15 +155,16 @@ void __aa_transition_rlimits(struct aa_label *old_l, struct aa_label *new_l)
 
 	/* set any new hard limits as dictated by the new profile */
 	label_for_each_confined(i, new_l, new) {
+		int j;
 		if (!new->rlimits.mask)
 			continue;
-		for (i = 0, mask = 1; i < RLIM_NLIMITS; i++, mask <<= 1) {
+		for (j = 0, mask = 1; j < RLIM_NLIMITS; j++, mask <<= 1) {
 			if (!(new->rlimits.mask & mask))
 				continue;
 
-			rlim = current->signal->rlim + i;
+			rlim = current->signal->rlim + j;
 			rlim->rlim_max = min(rlim->rlim_max,
-					     new->rlimits.limits[i].rlim_max);
+					     new->rlimits.limits[j].rlim_max);
 			/* soft limit should not exceed hard limit */
 			rlim->rlim_cur = min(rlim->rlim_cur, rlim->rlim_max);
 		}
