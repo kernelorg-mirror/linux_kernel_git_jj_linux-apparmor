@@ -425,7 +425,7 @@ out:
 }
 
 /**
- * __list_add_profile - add a profile to a list
+ * __add_profile - add a profiles to list and label tree
  * @list: list to add it to  (NOT NULL)
  * @profile: the profile to add  (NOT NULL)
  *
@@ -433,12 +433,21 @@ out:
  *
  * Requires: namespace lock be held, or list not be shared
  */
-static void __list_add_profile(struct list_head *list,
-			       struct aa_profile *profile)
+static void __add_profile(struct list_head *list, struct aa_profile *profile)
 {
+	struct aa_label *l;
+
+	AA_BUG(!list);
+	AA_BUG(!profile);
+	AA_BUG(!profile->ns);
+	AA_BUG(!mutex_is_locked(&profile->ns->lock));
+
 	list_add_rcu(&profile->base.list, list);
 	/* get list reference */
 	aa_get_profile(profile);
+	l = aa_label_insert(&profile->ns->labels, &profile->label);
+	AA_BUG(l != &profile->label);
+	aa_put_label(l);
 }
 
 /**
@@ -455,6 +464,10 @@ static void __list_add_profile(struct list_head *list,
  */
 static void __list_remove_profile(struct aa_profile *profile)
 {
+	AA_BUG(!profile);
+	AA_BUG(!profile->ns);
+	AA_BUG(!mutex_is_locked(&profile->ns->lock));
+
 	list_del_rcu(&profile->base.list);
 	aa_put_profile(profile);
 }
@@ -469,9 +482,14 @@ static void __profile_list_release(struct list_head *head);
  */
 static void __remove_profile(struct aa_profile *profile)
 {
+	AA_BUG(!profile);
+	AA_BUG(!profile->ns);
+	AA_BUG(!mutex_is_locked(&profile->ns->lock));
+
 	/* release any children lists first */
 	__profile_list_release(&profile->base.profiles);
 	/* released by free_profile */
+	aa_label_remove(&profile->ns->labels, &profile->label);
 	__aa_update_replacedby(profile, profile->ns->unconfined);
 	__aa_fs_profile_rmdir(profile);
 	__list_remove_profile(profile);
@@ -704,7 +722,7 @@ struct aa_profile *aa_new_null_profile(struct aa_profile *parent, int hat)
 	profile->ns = aa_get_namespace(parent->ns);
 
 	mutex_lock(&profile->ns->lock);
-	__list_add_profile(&parent->base.profiles, profile);
+	__add_profile(&parent->base.profiles, profile);
 	mutex_unlock(&profile->ns->lock);
 
 	/* refcount released by caller */
@@ -732,7 +750,7 @@ struct aa_profile *aa_setup_default_profile(void)
 	/* replacedby being set needed by fs interface */
 	rcu_assign_pointer(profile->replacedby->profile,
 			   aa_get_profile(profile));
-	__list_add_profile(&root_ns->base.profiles, profile);
+	__add_profile(&root_ns->base.profiles, profile);
 
 	return profile;
 }
@@ -1093,6 +1111,26 @@ static void share_name(struct aa_profile *old, struct aa_profile *new)
 	new->label.hname = old->label.hname;
 }
 
+/* Update to newest version of parent after previous replacements
+ * Returns: unrefcount newest version of parent
+ */
+static struct aa_profile *update_to_newest_parent(struct aa_profile *new)
+{
+	struct aa_profile *parent, *newest;
+	parent = rcu_dereference_protected(new->parent,
+					   mutex_is_locked(&new->ns->lock));
+	newest = aa_get_newest_profile(parent);
+
+	/* parent replaced in this atomic set? */
+	if (newest != parent) {
+		aa_put_profile(parent);
+		rcu_assign_pointer(new->parent, newest);
+	} else
+		aa_put_profile(newest);
+
+	return newest;
+}
+
 /**
  * aa_replace_profiles - replace profile(s) on the profile list
  * @udata: serialized data stream  (NOT NULL)
@@ -1208,6 +1246,9 @@ ssize_t aa_replace_profiles(void *udata, size_t size, bool noreplace)
 		if (ent->old) {
 			share_name(ent->old, ent->new);
 			__replace_profile(ent->old, ent->new, 1);
+			aa_label_replace(&ns->labels, &ent->old->label,
+					 &ent->new->label);
+			__aa_labelset_invalidate_all(ns, ent->old);
 			if (ent->rename) {
 				/* aafs interface uses replacedby */
 				struct aa_replacedby *r = ent->new->replacedby;
@@ -1220,27 +1261,19 @@ ssize_t aa_replace_profiles(void *udata, size_t size, bool noreplace)
 			rcu_assign_pointer(ent->new->replacedby->profile,
 					   aa_get_profile(ent->new));
 			__replace_profile(ent->rename, ent->new, 0);
-		} else if (ent->new->parent) {
-			struct aa_profile *parent, *newest;
-			parent = aa_deref_parent(ent->new);
-			newest = aa_get_newest_profile(parent);
-
-			/* parent replaced in this atomic set? */
-			if (newest != parent) {
-				aa_get_profile(newest);
-				aa_put_profile(parent);
-				rcu_assign_pointer(ent->new->parent, newest);
-			} else
-				aa_put_profile(newest);
-			/* aafs interface uses replacedby */
-			rcu_assign_pointer(ent->new->replacedby->profile,
-					   aa_get_profile(ent->new));
-			__list_add_profile(&parent->base.profiles, ent->new);
 		} else {
+			struct list_head *lh;
+			if (rcu_access_pointer(ent->new->parent)) {
+                               struct aa_profile *parent;
+                               parent = update_to_newest_parent(ent->new);
+                               lh = &parent->base.profiles;
+			} else
+				lh = &ns->base.profiles;
+
 			/* aafs interface uses replacedby */
 			rcu_assign_pointer(ent->new->replacedby->profile,
 					   aa_get_profile(ent->new));
-			__list_add_profile(&ns->base.profiles, ent->new);
+			__add_profile(lh, ent->new);
 		}
 		aa_load_ent_free(ent);
 	}
@@ -1323,6 +1356,7 @@ ssize_t aa_remove_profiles(char *fqname, size_t size)
 		}
 		name = profile->base.hname;
 		__remove_profile(profile);
+		__aa_labelset_invalidate_all(ns, profile);
 		mutex_unlock(&ns->lock);
 	}
 
