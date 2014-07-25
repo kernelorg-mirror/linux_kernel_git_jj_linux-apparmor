@@ -71,6 +71,16 @@ int aa_map_resource(int resource)
 	return rlim_map[resource];
 }
 
+static int profile_setrlimit(struct aa_profile *profile, unsigned int resource,
+			     struct rlimit *new_rlim)
+{
+	int e = 0;
+	if (profile->rlimits.mask & (1 << resource) && new_rlim->rlim_max >
+	    profile->rlimits.limits[resource].rlim_max)
+		e = -EACCES;
+	return audit_resource(profile, resource, new_rlim->rlim_max, e);
+}
+
 /**
  * aa_task_setrlimit - test permission to set an rlimit
  * @label - label confining the task  (NOT NULL)
@@ -98,19 +108,13 @@ int aa_task_setrlimit(struct aa_label *label, struct task_struct *task,
 	 * that the task is setting the resource of a task confined with
 	 * the same profile.
 	 */
-
-	label_for_each_confined(i, label, profile) {
-		int e = 0;
-		if (label != task_label ||
-		    (profile->rlimits.mask & (1 << resource) &&
-		     new_rlim->rlim_max >
-		     profile->rlimits.limits[resource].rlim_max))
-			e = -EACCES;
-		e = audit_resource(labels_profile(label), resource,
-				   new_rlim->rlim_max, e);
-		if (e)
-			error = e;
-	}
+	if (label != task_label)
+		error = fn_for_each(label, profile,
+				audit_resource(profile, resource,
+					       new_rlim->rlim_max, EACCES));
+	else
+		error = fn_for_each_confined(label, profile,
+				profile_setrlimit(profile, resource, new_rlim));
 	aa_put_label(task_label);
 
 	return error;

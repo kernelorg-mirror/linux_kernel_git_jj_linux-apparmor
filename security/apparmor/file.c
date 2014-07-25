@@ -304,7 +304,7 @@ int aa_path_perm(int op, struct aa_label *label, struct path *path,
 	char *buffer = NULL;
 	const char *name;
 	struct aa_profile *profile;
-	int i, error;
+	int error;
 
 	/* TODO: fix path lookup flags */
 	flags |= labels_profile(label)->path_flags |
@@ -316,11 +316,8 @@ int aa_path_perm(int op, struct aa_label *label, struct path *path,
 	if (error)
 		goto out;
 
-	label_for_each_confined(i, label, profile) {
-		int e = path_perm(op, profile, name, request, cond, &perms);
-		if (e)
-			error = e;
-	}
+	error = fn_for_each_confined(label, profile,
+			path_perm(op, profile, name, request, cond, &perms));
 
 out:
 	put_buffers(buffer);
@@ -345,6 +342,71 @@ static inline bool xindex_is_subset(u32 link, u32 target)
 		return 0;
 
 	return 1;
+}
+
+static int profile_path_link(struct aa_profile *profile, const char *lname, 
+			     const char *tname, struct path_cond *cond)
+{
+	struct file_perms lperms, perms;
+	const char *info = NULL;
+	u32 request = AA_MAY_LINK;
+	unsigned int state;
+	int e = -EACCES;
+
+	/* aa_str_perms - handles the case of the dfa being NULL */
+	state = aa_str_perms(profile->file.dfa, profile->file.start, lname,
+			     cond, &lperms);
+
+	if (!(lperms.allow & AA_MAY_LINK))
+		goto audit;
+
+	/* test to see if target can be paired with link */
+	state = aa_dfa_null_transition(profile->file.dfa, state);
+	aa_str_perms(profile->file.dfa, state, tname, cond, &perms);
+
+	/* force audit/quiet masks for link are stored in the second entry
+	 * in the link pair.
+	 */
+	lperms.audit = perms.audit;
+	lperms.quiet = perms.quiet;
+	lperms.kill = perms.kill;
+
+	if (!(perms.allow & AA_MAY_LINK)) {
+		info = "target restricted";
+		goto audit;
+	}
+
+	/* done if link subset test is not required */
+	if (!(perms.allow & AA_LINK_SUBSET))
+		goto done_tests;
+
+	/* Do link perm subset test requiring allowed permission on link are
+	 * a subset of the allowed permissions on target.
+	 */
+	aa_str_perms(profile->file.dfa, profile->file.start, tname, cond,
+		     &perms);
+
+	/* AA_MAY_LINK is not considered in the subset test */
+	request = lperms.allow & ~AA_MAY_LINK;
+	lperms.allow &= perms.allow | AA_MAY_LINK;
+
+	request |= AA_AUDIT_FILE_MASK & (lperms.allow & ~perms.allow);
+	if (request & ~lperms.allow) {
+		goto audit;
+	} else if ((lperms.allow & MAY_EXEC) &&
+		   !xindex_is_subset(lperms.xindex, perms.xindex)) {
+		lperms.allow &= ~MAY_EXEC;
+		request |= MAY_EXEC;
+		info = "link not subset of target";
+		goto audit;
+	}
+
+done_tests:
+	e = 0;
+
+audit:
+	return aa_audit_file(profile, &lperms, OP_LINK, request, lname, tname,
+			     cond->uid, info, e);
 }
 
 /**
@@ -375,14 +437,9 @@ int aa_path_link(struct aa_label *label, struct dentry *old_dentry,
 		old_dentry->d_inode->i_mode
 	};
 	char *buffer = NULL, *buffer2 = NULL;
-	const char *lname, *tname = NULL, *info = NULL;
-	struct file_perms lperms, perms;
-	u32 request = AA_MAY_LINK;
-	unsigned int state;
+	const char *lname, *tname = NULL;
 	struct aa_profile *profile;
-	int i, error;
-
-	lperms = nullperms;
+	int error;
 
 	/* TODO: fix path lookup flags, auditing of failed path for profile */
 	profile = labels_profile(label);
@@ -390,76 +447,19 @@ int aa_path_link(struct aa_label *label, struct dentry *old_dentry,
 	get_buffers(buffer, buffer2);
 	error = path_name(OP_LINK, label, &link,
 			  labels_profile(label)->path_flags, buffer,
-			  &lname, &cond, request, false);
+			  &lname, &cond, AA_MAY_LINK, false);
 	if (error)
 		goto out;
 
 	/* buffer2 freed below, tname is pointer in buffer2 */
 	error = path_name(OP_LINK, label, &target,
 			  labels_profile(label)->path_flags, buffer2, &tname,
-			  &cond, request, false);
+			  &cond, AA_MAY_LINK, false);
 	if (error)
 		goto out;
 
-	label_for_each_confined(i, label, profile) {
-		int e = -EACCES;
-		/* aa_str_perms - handles the case of the dfa being NULL */
-		state = aa_str_perms(profile->file.dfa, profile->file.start,
-				     lname, &cond, &lperms);
-
-		if (!(lperms.allow & AA_MAY_LINK))
-			goto audit;
-
-		/* test to see if target can be paired with link */
-		state = aa_dfa_null_transition(profile->file.dfa, state);
-		aa_str_perms(profile->file.dfa, state, tname, &cond, &perms);
-
-		/* force audit/quiet masks for link are stored in the second
-		 * entry in the link pair.
-		 */
-		lperms.audit = perms.audit;
-		lperms.quiet = perms.quiet;
-		lperms.kill = perms.kill;
-
-		if (!(perms.allow & AA_MAY_LINK)) {
-			info = "target restricted";
-			goto audit;
-		}
-
-		/* done if link subset test is not required */
-		if (!(perms.allow & AA_LINK_SUBSET))
-			goto done_tests;
-
-		/* Do link perm subset test requiring allowed permission on
-		 * link are a subset of the allowed permissions on target.
-		 */
-		aa_str_perms(profile->file.dfa, profile->file.start, tname,
-			     &cond, &perms);
-
-		/* AA_MAY_LINK is not considered in the subset test */
-		request = lperms.allow & ~AA_MAY_LINK;
-		lperms.allow &= perms.allow | AA_MAY_LINK;
-
-		request |= AA_AUDIT_FILE_MASK & (lperms.allow & ~perms.allow);
-		if (request & ~lperms.allow) {
-			goto audit;
-		} else if ((lperms.allow & MAY_EXEC) &&
-			   !xindex_is_subset(lperms.xindex, perms.xindex)) {
-			lperms.allow &= ~MAY_EXEC;
-			request |= MAY_EXEC;
-			info = "link not subset of target";
-			goto audit;
-		}
-
-	done_tests:
-		e = 0;
-
-	audit:
-		e = aa_audit_file(profile, &lperms, OP_LINK, request, lname,
-				  tname, cond.uid, info, e);
-		if (e)
-			error = e;
-	}
+	error = fn_for_each_confined(label, profile,
+			profile_path_link(profile, lname, tname, &cond));
 
 out:
 	put_buffers(buffer, buffer2);

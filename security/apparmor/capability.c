@@ -144,15 +144,12 @@ static int profile_capable(struct aa_profile *profile, int cap,
 int aa_capable(struct aa_label *label, int cap, int audit)
 {
 	struct aa_profile *profile;
-	int i, error = 0;
+	int error = 0;
 	DEFINE_AUDIT_DATA(sa, LSM_AUDIT_DATA_CAP, OP_CAPABLE);
 	sa.u.cap = cap;
 
-	label_for_each_confined(i, label, profile) {
-		int e = profile_capable(profile, cap, audit ? &sa : NULL);
-		if (e)
-			error = e;
-	}
+	error = fn_for_each_confined(label, profile,
+			profile_capable(profile, cap, audit ? &sa : NULL));
 
 	return error;
 }

@@ -15,6 +15,7 @@
 #define __AA_PERM_H
 
 #include <linux/fs.h>
+#include "label.h"
 
 #define AA_MAY_EXEC		MAY_EXEC
 #define AA_MAY_WRITE		MAY_WRITE
@@ -117,25 +118,13 @@ struct aa_perms {
 #define cross_check_profile_label(P, L, FN, args...)		\
 ({								\
 	struct aa_profile *__p2;				\
-	int i, error = 0;					\
-	label_for_each(i, (L), __p2) {				\
-		int e = FN((P), __p2, args);			\
-		if (e)						\
-			error = e;				\
-	}							\
-	error;							\
+	fn_for_each((L), __p2, FN((P), __p2, args));		\
 })
 
 #define cross_check_ns_labels(L1, L2, FN, args...)		\
 ({								\
 	struct aa_profile *__p1;				\
-	int i, error = 0;					\
-	label_for_each(i, (L1), __p1) {				\
-		int e = FN(__p1, (L2), args);			\
-		if (e)						\
-			error = e;				\
-	}							\
-	error;							\
+	fn_for_each((L1), __p1, FN(__p1, (L2), args));		\
 })
 
 /* todo: fix to handle multiple namespaces */
