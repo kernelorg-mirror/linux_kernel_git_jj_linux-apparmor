@@ -51,13 +51,15 @@ void aa_free_domain_entries(struct aa_domain *domain)
 /**
  * may_change_ptraced_domain - check if can change profile on ptraced task
  * @to_profile: profile to change to  (NOT NULL)
+ * @info: message if there is an error
  *
  * Check if current is ptraced and if so if the tracing task is allowed
  * to trace the new domain
  *
  * Returns: %0 or error if change not allowed
  */
-static int may_change_ptraced_domain(struct aa_profile *to_profile)
+static int may_change_ptraced_domain(struct aa_profile *to_profile,
+				     const char **info)
 {
 	struct task_struct *tracer;
 	struct aa_label *tracerl = NULL;
@@ -79,6 +81,8 @@ out:
 	rcu_read_unlock();
 	aa_put_label(tracerl);
 
+	if (error)
+		*info = "ptrace prevents transition";
 	return error;
 }
 
@@ -486,7 +490,7 @@ int apparmor_bprm_set_creds(struct linux_binprm *bprm)
 	}
 
 	if (bprm->unsafe & (LSM_UNSAFE_PTRACE | LSM_UNSAFE_PTRACE_CAP)) {
-		error = may_change_ptraced_domain(new_profile);
+		error = may_change_ptraced_domain(new_profile, &info);
 		if (error) {
 			aa_put_profile(new_profile);
 			goto audit;
@@ -672,9 +676,8 @@ int aa_change_hat(const char *hats[], int count, u64 token, bool permtest)
 			}
 		}
 
-		error = may_change_ptraced_domain(hat);
+		error = may_change_ptraced_domain(hat, &info);
 		if (error) {
-			info = "ptraced";
 			error = -EPERM;
 			goto audit;
 		}
@@ -815,11 +818,9 @@ int aa_change_profile(const char *ns_name, const char *hname, bool onexec,
 	}
 
 	/* check if tracing task is allowed to trace target domain */
-	error = may_change_ptraced_domain(target);
-	if (error) {
-		info = "ptrace prevents transition";
+	error = may_change_ptraced_domain(target, &info);
+	if (error)
 		goto audit;
-	}
 
 	if (permtest)
 		goto audit;
