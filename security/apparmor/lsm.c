@@ -832,6 +832,9 @@ do { \
 static int unix_fs_perm(int op, struct aa_label *label, struct sock *sk,
 			u32 mask)
 {
+	if (!LABEL_MEDIATES(label, AA_CLASS_FILE))
+		return 0;
+
 	if (!unconfined(label) && UNIX_FS(sk)) {
 		struct unix_sock *u = unix_sk(sk);
 

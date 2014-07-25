@@ -206,6 +206,18 @@ int aa_label_next_confined(struct aa_label *l, int i);
 #define fn_for_each(L, P, FN) fn_for_each_XXX(L, P, FN)
 #define fn_for_each_confined(L, P, FN) fn_for_each_XXX(L, P, FN, _confined)
 
+#define LABEL_MEDIATES(L, C)				\
+({							\
+	struct aa_profile *profile;			\
+	int i, ret = 0;					\
+	label_for_each(i, (L), profile) {		\
+		if (PROFILE_MEDIATES(profile, (C))) {	\
+			ret = 1;			\
+			break;				\
+		}					\
+	}						\
+	ret;						\
+})
 
 void aa_labelset_destroy(struct aa_labelset *ls);
 void aa_labelset_init(struct aa_labelset *ls);
