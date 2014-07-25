@@ -112,9 +112,15 @@ bool aa_label_remove(struct aa_labelset *ls, struct aa_label *label);
 void aa_label_kref(struct kref *kref)
 {
 	struct aa_label *l = container_of(kref, struct aa_label, count);
-	struct aa_labelset *ls = labels_set(l);
+	struct aa_namespace *ns = labels_ns(l);
 
-	(void) aa_label_remove(ls, l);
+	if (!ns) {
+		/* never live, no rcu callback needed, just using the fn */
+		label_free_rcu(&l->rcu);
+		return;
+	}
+
+	(void) aa_label_remove(&ns->labels, l);
 
 	/* TODO: if compound label and not invalid add to reclaim cache */
 	call_rcu(&l->rcu, label_free_rcu);
@@ -237,6 +243,8 @@ static bool __aa_label_replace(struct aa_labelset *ls, struct aa_label *old,
 	return false;
 }
 
+static struct aa_label *__aa_label_insert(struct aa_labelset *ls,
+					  struct aa_label *l);
 /**
  * aa_label_replace - replace a label @old with a new version @new
  * @ls: labelset being manipulated
@@ -253,7 +261,12 @@ bool aa_label_replace(struct aa_labelset *ls, struct aa_label *old,
 	bool res;
 
 	write_lock_irqsave(&ls->lock, flags);
-	res = __aa_label_replace(ls, old, new);
+	if (!(old->flags & FLAG_IN_TREE)) {
+		struct aa_label *l = __aa_label_insert(ls, new);
+		res = (l == new);
+		aa_put_label(l);
+	} else
+		res = __aa_label_replace(ls, old, new);
 	write_unlock_irqrestore(&ls->lock, flags);
 
 	return res;
