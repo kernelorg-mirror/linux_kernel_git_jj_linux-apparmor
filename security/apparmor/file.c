@@ -26,6 +26,16 @@
 
 struct file_perms nullperms;
 
+static u32 map_mask_to_chr_mask(u32 mask)
+{
+	u32 m = mask & AA_PERM_CHR_MASK;
+	if (mask & AA_MAY_META_READ)
+		m |= MAY_READ;
+	if (mask & (AA_MAY_META_WRITE | AA_MAY_CHMOD | AA_MAY_CHOWN))
+		m |= MAY_WRITE;
+
+	return m;
+}
 
 /**
  * audit_file_mask - convert mask to permission string
@@ -36,29 +46,7 @@ static void audit_file_mask(struct audit_buffer *ab, u32 mask)
 {
 	char str[10];
 
-	char *m = str;
-
-	if (mask & AA_EXEC_MMAP)
-		*m++ = 'm';
-	if (mask & (MAY_READ | AA_MAY_META_READ))
-		*m++ = 'r';
-	if (mask & (MAY_WRITE | AA_MAY_META_WRITE | AA_MAY_CHMOD |
-		    AA_MAY_CHOWN))
-		*m++ = 'w';
-	else if (mask & MAY_APPEND)
-		*m++ = 'a';
-	if (mask & AA_MAY_CREATE)
-		*m++ = 'c';
-	if (mask & AA_MAY_DELETE)
-		*m++ = 'd';
-	if (mask & AA_MAY_LINK)
-		*m++ = 'l';
-	if (mask & AA_MAY_LOCK)
-		*m++ = 'k';
-	if (mask & MAY_EXEC)
-		*m++ = 'x';
-	*m = '\0';
-
+	aa_perm_mask_to_chr(map_mask_to_chr_mask(mask), str);
 	audit_log_string(ab, str);
 }
 
@@ -72,15 +60,15 @@ static void file_audit_cb(struct audit_buffer *ab, void *va)
 	struct common_audit_data *sa = va;
 	kuid_t fsuid = current_fsuid();
 
-	if (aad(sa)->fs.request & AA_AUDIT_FILE_MASK) {
+	if (aad(sa)->request & AA_AUDIT_FILE_MASK) {
 		audit_log_format(ab, " requested_mask=");
-		audit_file_mask(ab, aad(sa)->fs.request);
+		audit_file_mask(ab, aad(sa)->request);
 	}
-	if (aad(sa)->fs.denied & AA_AUDIT_FILE_MASK) {
+	if (aad(sa)->denied & AA_AUDIT_FILE_MASK) {
 		audit_log_format(ab, " denied_mask=");
-		audit_file_mask(ab, aad(sa)->fs.denied);
+		audit_file_mask(ab, aad(sa)->denied);
 	}
-	if (aad(sa)->fs.request & AA_AUDIT_FILE_MASK) {
+	if (aad(sa)->request & AA_AUDIT_FILE_MASK) {
 		audit_log_format(ab, " fsuid=%d",
 				 from_kuid(&init_user_ns, fsuid));
 		audit_log_format(ab, " ouid=%d",
@@ -114,7 +102,7 @@ int aa_audit_file(struct aa_profile *profile, struct file_perms *perms,
 	int type = AUDIT_APPARMOR_AUTO;
 
 	DEFINE_AUDIT_DATA(sa, LSM_AUDIT_DATA_NONE, op);
-	aad(&sa)->fs.request = request;
+	aad(&sa)->request = request;
 	aad(&sa)->name = name;
 	aad(&sa)->fs.target = target;
 	aad(&sa)->fs.ouid = ouid;
@@ -129,29 +117,29 @@ int aa_audit_file(struct aa_profile *profile, struct file_perms *perms,
 			mask = 0xffff;
 
 		/* mask off perms that are not being force audited */
-		aad(&sa)->fs.request &= mask;
+		aad(&sa)->request &= mask;
 
-		if (likely(!aad(&sa)->fs.request))
+		if (likely(!aad(&sa)->request))
 			return 0;
 		type = AUDIT_APPARMOR_AUDIT;
 	} else {
 		/* only report permissions that were denied */
-		aad(&sa)->fs.request = aad(&sa)->fs.request & ~perms->allow;
+		aad(&sa)->request = aad(&sa)->request & ~perms->allow;
 
-		if (aad(&sa)->fs.request & perms->kill)
+		if (aad(&sa)->request & perms->kill)
 			type = AUDIT_APPARMOR_KILL;
 
 		/* quiet known rejects, assumes quiet and kill do not overlap */
-		if ((aad(&sa)->fs.request & perms->quiet) &&
+		if ((aad(&sa)->request & perms->quiet) &&
 		    AUDIT_MODE(profile) != AUDIT_NOQUIET &&
 		    AUDIT_MODE(profile) != AUDIT_ALL)
-			aad(&sa)->fs.request &= ~perms->quiet;
+			aad(&sa)->request &= ~perms->quiet;
 
-		if (!aad(&sa)->fs.request)
+		if (!aad(&sa)->request)
 			return COMPLAIN_MODE(profile) ? 0 : aad(&sa)->error;
 	}
 
-	aad(&sa)->fs.denied = aad(&sa)->fs.request & ~perms->allow;
+	aad(&sa)->denied = aad(&sa)->request & ~perms->allow;
 	return aa_audit(type, profile, &sa, file_audit_cb);
 }
 
@@ -479,8 +467,9 @@ out:
 	return error;
 }
 
-int __file_path_perm(int op, struct aa_label *label, struct aa_label *flabel,
-		     struct file *file, u32 request, u32 denied)
+static int __file_path_perm(int op, struct aa_label *label,
+			    struct aa_label *flabel, struct file *file,
+			    u32 request, u32 denied)
 {
 	struct aa_profile *profile;
 	struct file_perms perms = {};

@@ -110,6 +110,8 @@ struct apparmor_audit_data {
 	struct aa_label *label;
 	const char *name;
 	const char *info;
+	u32 request;
+	u32 denied;
 	union {
 		void *target;
 		struct {
@@ -122,8 +124,6 @@ struct apparmor_audit_data {
 		} rlim;
 		struct {
 			const char *target;
-			u32 request;
-			u32 denied;
 			kuid_t ouid;
 		} fs;
 	};
@@ -145,6 +145,14 @@ void aa_audit_msg(int type, struct common_audit_data *sa,
 		  void (*cb) (struct audit_buffer *, void *));
 int aa_audit(int type, struct aa_profile *profile, struct common_audit_data *sa,
 	     void (*cb) (struct audit_buffer *, void *));
+
+#define aa_audit_error(ERROR, SA, CB)				\
+({								\
+	aad((SA))->error = (ERROR);				\
+	aa_audit_msg(AUDIT_APPARMOR_ERROR, (SA), (CB));		\
+	aad((SA))->error;					\
+})
+
 
 static inline int complain_error(int error)
 {

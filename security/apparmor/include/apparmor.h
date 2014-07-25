@@ -30,8 +30,9 @@
 #define AA_CLASS_NET		4
 #define AA_CLASS_RLIMITS	5
 #define AA_CLASS_DOMAIN		6
+#define AA_CLASS_LABEL		16
 
-#define AA_CLASS_LAST		AA_CLASS_DOMAIN
+#define AA_CLASS_LAST		AA_CLASS_LABEL
 
 /* Control parameters settable through module/boot flags */
 extern enum audit_mode aa_g_audit;

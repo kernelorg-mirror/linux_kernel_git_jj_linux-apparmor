@@ -171,6 +171,11 @@ int aa_label_next_confined(struct aa_label *l, int i);
 #define label_for_each(I, L, P)				\
 	for ((I) = 0; ((P) = (L)->ent[(I)]); ++(I))
 
+#define label_for_each_at(I, L, P)			\
+	for (;						\
+	     (I) < (L)->size && ((P) = (L)->ent[(I)]);	\
+	     ++(I))
+
 /* for each profile that is enforcing confinement in a label */
 #define label_for_each_confined(I, L, P)		\
 	for ((I) = aa_label_next_confined((L), 0);	\
