@@ -547,7 +547,7 @@ static int apparmor_file_mprotect(struct vm_area_struct *vma,
 static int apparmor_sb_mount(const char *dev_name, struct path *path,
 			     const char *type, unsigned long flags, void *data)
 {
-	struct aa_profile *profile;
+	struct aa_label *label;
 	int error = 0;
 
 	/* Discard magic */
@@ -556,19 +556,19 @@ static int apparmor_sb_mount(const char *dev_name, struct path *path,
 
 	flags &= ~AA_MS_IGNORE_MASK;
 
-	profile = __aa_current_profile();
-	if (!unconfined(profile)) {
+	label = __aa_current_label();
+	if (!unconfined(label)) {
 		if (flags & MS_REMOUNT)
-			error = aa_remount(profile, path, flags, data);
+			error = aa_remount(label, path, flags, data);
 		else if (flags & MS_BIND)
-			error = aa_bind_mount(profile, path, dev_name, flags);
+			error = aa_bind_mount(label, path, dev_name, flags);
 		else if (flags & (MS_SHARED | MS_PRIVATE | MS_SLAVE |
 				  MS_UNBINDABLE))
-			error = aa_mount_change_type(profile, path, flags);
+			error = aa_mount_change_type(label, path, flags);
 		else if (flags & MS_MOVE)
-			error = aa_move_mount(profile, path, dev_name);
+			error = aa_move_mount(label, path, dev_name);
 		else
-			error = aa_new_mount(profile, dev_name, path, type,
+			error = aa_new_mount(label, dev_name, path, type,
 					     flags, data);
 	}
 	return error;
@@ -576,24 +576,24 @@ static int apparmor_sb_mount(const char *dev_name, struct path *path,
 
 static int apparmor_sb_umount(struct vfsmount *mnt, int flags)
 {
-	struct aa_profile *profile;
+	struct aa_label *label;
 	int error = 0;
 
-	profile = __aa_current_profile();
-	if (!unconfined(profile))
-		error = aa_umount(profile, mnt, flags);
+	label = __aa_current_label();
+	if (!unconfined(label))
+		error = aa_umount(label, mnt, flags);
 
 	return error;
 }
 
 static int apparmor_sb_pivotroot(struct path *old_path, struct path *new_path)
 {
-	struct aa_profile *profile;
+	struct aa_label *label;
 	int error = 0;
 
-	profile = __aa_current_profile();
-	if (!unconfined(profile))
-		error = aa_pivotroot(profile, old_path, new_path);
+	label = __aa_current_label();
+	if (!unconfined(label))
+		error = aa_pivotroot(label, old_path, new_path);
 
 	return error;
 }

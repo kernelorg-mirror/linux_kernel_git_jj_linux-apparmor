@@ -90,26 +90,26 @@ static void audit_cb(struct audit_buffer *ab, void *va)
 {
 	struct common_audit_data *sa = va;
 
-	if (sa->aad->mnt.type) {
+	if (aad(sa)->mnt.type) {
 		audit_log_format(ab, " fstype=");
-		audit_log_untrustedstring(ab, sa->aad->mnt.type);
+		audit_log_untrustedstring(ab, aad(sa)->mnt.type);
 	}
-	if (sa->aad->mnt.src_name) {
+	if (aad(sa)->mnt.src_name) {
 		audit_log_format(ab, " srcname=");
-		audit_log_untrustedstring(ab, sa->aad->mnt.src_name);
+		audit_log_untrustedstring(ab, aad(sa)->mnt.src_name);
 	}
-	if (sa->aad->mnt.trans) {
+	if (aad(sa)->mnt.trans) {
 		audit_log_format(ab, " trans=");
-		audit_log_untrustedstring(ab, sa->aad->mnt.trans);
+		audit_log_untrustedstring(ab, aad(sa)->mnt.trans);
 	}
-	if (sa->aad->mnt.flags || sa->aad->op == OP_MOUNT) {
+	if (aad(sa)->mnt.flags || aad(sa)->op == OP_MOUNT) {
 		audit_log_format(ab, " flags=\"");
-		audit_mnt_flags(ab, sa->aad->mnt.flags);
+		audit_mnt_flags(ab, aad(sa)->mnt.flags);
 		audit_log_format(ab, "\"");
 	}
-	if (sa->aad->mnt.data) {
+	if (aad(sa)->mnt.data) {
 		audit_log_format(ab, " options=");
-		audit_log_untrustedstring(ab, sa->aad->mnt.data);
+		audit_log_untrustedstring(ab, aad(sa)->mnt.data);
 	}
 }
 
@@ -137,8 +137,7 @@ static int audit_mount(struct aa_profile *profile, int op, const char *name,
 		       const char *info, int error)
 {
 	int audit_type = AUDIT_APPARMOR_AUTO;
-	struct common_audit_data sa = { };
-	struct apparmor_audit_data aad = { };
+	DEFINE_AUDIT_DATA(sa, LSM_AUDIT_DATA_NONE);
 
 	if (likely(!error)) {
 		u32 mask = perms->audit;
@@ -170,18 +169,16 @@ static int audit_mount(struct aa_profile *profile, int op, const char *name,
 				complain_error(error) : error;
 	}
 
-	sa.type = LSM_AUDIT_DATA_NONE;
-	sa.aad = &aad;
-	sa.aad->op = op;
-	sa.aad->name = name;
-	sa.aad->mnt.src_name = src_name;
-	sa.aad->mnt.type = type;
-	sa.aad->mnt.trans = trans;
-	sa.aad->mnt.flags = flags;
+	aad(&sa)->op = op;
+	aad(&sa)->name = name;
+	aad(&sa)->mnt.src_name = src_name;
+	aad(&sa)->mnt.type = type;
+	aad(&sa)->mnt.trans = trans;
+	aad(&sa)->mnt.flags = flags;
 	if (data && (perms->audit & AA_AUDIT_DATA))
-		sa.aad->mnt.data = data;
-	sa.aad->info = info;
-	sa.aad->error = error;
+		aad(&sa)->mnt.data = data;
+	aad(&sa)->info = info;
+	aad(&sa)->error = error;
 
 	return aa_audit(audit_type, profile, &sa, audit_cb);
 }
@@ -335,9 +332,10 @@ static int path_flags(struct aa_profile *profile, struct path *path)
 		S_ISDIR(path->dentry->d_inode->i_mode) ? PATH_IS_DIR : 0;
 }
 
-int aa_remount(struct aa_profile *profile, struct path *path,
-	       unsigned long flags, void *data)
+int aa_remount(struct aa_label *label, struct path *path, unsigned long flags,
+	       void *data)
 {
+	struct aa_profile *profile = labels_profile(label);
 	struct file_perms perms = { };
 	const char *name, *info = NULL;
 	char *buffer = NULL;
@@ -361,9 +359,10 @@ audit:
 	return error;
 }
 
-int aa_bind_mount(struct aa_profile *profile, struct path *path,
+int aa_bind_mount(struct aa_label *label, struct path *path,
 		  const char *dev_name, unsigned long flags)
 {
+	struct aa_profile *profile = labels_profile(label);
 	struct file_perms perms = { };
 	char *buffer = NULL, *old_buffer = NULL;
 	const char *name, *old_name = NULL, *info = NULL;
@@ -402,9 +401,10 @@ audit:
 	return error;
 }
 
-int aa_mount_change_type(struct aa_profile *profile, struct path *path,
+int aa_mount_change_type(struct aa_label *label, struct path *path,
 			 unsigned long flags)
 {
+	struct aa_profile *profile = labels_profile(label);
 	struct file_perms perms = { };
 	char *buffer = NULL;
 	const char *name, *info = NULL;
@@ -430,9 +430,10 @@ audit:
 	return error;
 }
 
-int aa_move_mount(struct aa_profile *profile, struct path *path,
+int aa_move_mount(struct aa_label *label, struct path *path,
 		  const char *orig_name)
 {
+	struct aa_profile *profile = labels_profile(label);
 	struct file_perms perms = { };
 	char *buffer = NULL, *old_buffer = NULL;
 	const char *name, *old_name = NULL, *info = NULL;
@@ -469,10 +470,11 @@ audit:
 	return error;
 }
 
-int aa_new_mount(struct aa_profile *profile, const char *orig_dev_name,
+int aa_new_mount(struct aa_label *label, const char *orig_dev_name,
 		 struct path *path, const char *type, unsigned long flags,
 		 void *data)
 {
+	struct aa_profile *profile = labels_profile(label);
 	struct file_perms perms = { };
 	char *buffer = NULL, *dev_buffer = NULL;
 	const char *name = NULL, *dev_name = NULL, *info = NULL;
@@ -530,8 +532,9 @@ out:
 
 }
 
-int aa_umount(struct aa_profile *profile, struct vfsmount *mnt, int flags)
+int aa_umount(struct aa_label *label, struct vfsmount *mnt, int flags)
 {
+	struct aa_profile *profile = labels_profile(label);
 	struct file_perms perms = { };
 	char *buffer = NULL;
 	const char *name, *info = NULL;
@@ -562,9 +565,10 @@ audit:
 	return error;
 }
 
-int aa_pivotroot(struct aa_profile *profile, struct path *old_path,
+int aa_pivotroot(struct aa_label *label, struct path *old_path,
 		  struct path *new_path)
 {
+	struct aa_profile *profile = labels_profile(label);
 	struct file_perms perms = { };
 	struct aa_profile *target = NULL;
 	char *old_buffer = NULL, *new_buffer = NULL;
@@ -597,7 +601,7 @@ int aa_pivotroot(struct aa_profile *profile, struct path *old_path,
 			if (!target)
 				error = -ENOENT;
 			else
-				error = aa_replace_current_profile(target);
+				error = aa_replace_current_label(&target->label);
 		}
 	} else
 		error = -EACCES;
