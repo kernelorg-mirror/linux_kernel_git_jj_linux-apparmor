@@ -1460,7 +1460,13 @@ static int __init alloc_buffers(void)
 
 	for_each_possible_cpu(i) {
 		for_each_cpu_buffer(j) {
-			char *buffer = kmalloc(aa_g_path_max, GFP_KERNEL);
+			char *buffer;
+			if (cpu_to_node(i) > num_online_nodes())
+				/* fallback to kmalloc for offline nodes */
+				buffer = kmalloc(aa_g_path_max, GFP_KERNEL);
+			else
+				buffer = kmalloc_node(aa_g_path_max, GFP_KERNEL,
+						      cpu_to_node(i));
 			if (!buffer) {
 				destroy_buffers();
 				return -ENOMEM;
