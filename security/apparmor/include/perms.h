@@ -102,7 +102,7 @@ struct aa_perms {
 })
 
 /* pattern: perform send/receive style paired cross check of permissions
- * 
+ *
  */
 #define cross_check_profiles(P1, P2, FN1, FN2, PERM, args...)	\
 ({								\

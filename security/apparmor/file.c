@@ -344,7 +344,7 @@ static inline bool xindex_is_subset(u32 link, u32 target)
 	return 1;
 }
 
-static int profile_path_link(struct aa_profile *profile, const char *lname, 
+static int profile_path_link(struct aa_profile *profile, const char *lname,
 			     const char *tname, struct path_cond *cond)
 {
 	struct file_perms lperms, perms;
@@ -492,7 +492,7 @@ static int __file_path_perm(int op, struct aa_label *label,
 			/* Access to open files that are deleted are
 			 * given a pass (implicit delegation)
 			 */
-			/* TODO not needed when full perms cached ???? */
+			/* TODO not needed when full perms cached */
 			error = 0;
 		goto out;
 	}
@@ -505,7 +505,7 @@ static int __file_path_perm(int op, struct aa_label *label,
 				path_perm(op, profile, name, request, &cond,
 					  &perms));
 	} else {
-		/* are we revalidating just because the label was out of date?*/
+		/* are we revalidating just because the label was out of date */
 		if (flabel == label)
 			goto out;
 
@@ -584,16 +584,6 @@ int aa_file_perm(int op, struct aa_label *label, struct file *file,
 	if (file->f_path.mnt && path_mediated_fs(file_inode(file)))
 		error = __file_path_perm(op, label, flabel, file, request,
 					 denied);
-	else
-	{
-char *s = aa_imode_name(file_inode(file)->i_mode);
-
- printk("apparmor: revalidation of non-mediated file. denied 0x%x mnt? %p (%s) label: (%p)", denied, file->f_path.mnt, s, label);
-aa_label_printk(labels_ns(label), label, false, GFP_ATOMIC);
- printk(" flabel: (%p)", flabel);
-aa_label_printk(labels_ns(flabel), flabel, false, GFP_ATOMIC);
- printk(" is_subset %d\n", aa_label_is_subset(flabel, label));
-	}
 	if (error)
 		goto done;
 	update_file_cxt(fcxt, label, request);
@@ -617,8 +607,6 @@ static void revalidate_tty(struct aa_label *label)
 	if (!list_empty(&tty->tty_files)) {
 		struct tty_file_private *file_priv;
 		struct file *file;
-		/* Revalidate access to controlling tty.
-		   ???? */
 		file_priv = list_first_entry(&tty->tty_files,
 					     struct tty_file_private, list);
 		file = file_priv->file;
@@ -661,7 +649,6 @@ void aa_inherit_files(const struct cred *cred, struct files_struct *files)
 		devnull = NULL;
 	/* replace all the matching ones with this */
 	do {
-printk("apparmor: replacing %d\n", n -1);
 		replace_fd(n - 1, devnull, 0);
 	} while ((n = iterate_fd(files, n, match_file, label)) != 0);
 	if (devnull)

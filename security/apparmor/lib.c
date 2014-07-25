@@ -179,7 +179,7 @@ void aa_audit_perm_mask(struct audit_buffer *ab, u32 mask)
  * @ab: audit buffer (NOT NULL)
  * @va: audit struct to audit values of (NOT NULL)
  */
-void aa_audit_perms_cb(struct audit_buffer *ab, void *va)
+static void aa_audit_perms_cb(struct audit_buffer *ab, void *va)
 {
 	struct common_audit_data *sa = va;
 
@@ -193,12 +193,6 @@ void aa_audit_perms_cb(struct audit_buffer *ab, void *va)
 	}
 	audit_log_format(ab, " target=");
 	audit_log_untrustedstring(ab, aad(sa)->target);
-}
-
-void map_old_policy_perms(struct aa_dfa *dfa, unsigned int state,
-			  struct aa_perms *perms)
-{
-
 }
 
 /**
@@ -241,7 +235,6 @@ void aa_compute_perms(struct aa_dfa *dfa, unsigned int state,
 	perms->allow = dfa_user_allow(dfa, state);
 	perms->audit = dfa_user_audit(dfa, state);
 	perms->quiet = dfa_user_quiet(dfa, state);
-//	perms->xindex = dfa_user_xindex(dfa, state);
 }
 
 void aa_profile_match_label(struct aa_profile *profile, const char *label,

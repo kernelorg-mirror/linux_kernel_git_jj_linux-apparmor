@@ -472,26 +472,7 @@ static int common_file_perm(int op, struct file *file, u32 mask)
 
 static int apparmor_file_receive(struct file *file)
 {
-	struct aa_file_cxt *fcxt = file_cxt(file);
-	struct aa_label *label;
-	int error;
-
-int foo = 0;
-label = __aa_get_current_label();
-
-rcu_read_lock();
-if (label != fcxt->label) {
-	foo = 1;
-	printk("apparmor %s received file with labeling ", label->hname);
-	aa_label_printk(labels_ns(label), rcu_dereference(fcxt->label), false, GFP_ATOMIC);
- }
-rcu_read_unlock();
-__aa_put_current_label(label);
-
-	error = common_file_perm(OP_FRECEIVE, file, aa_map_file_to_perms(file));
-if (foo)
-printk(" result %d\n", error);
-	return error;
+	return common_file_perm(OP_FRECEIVE, file, aa_map_file_to_perms(file));
 }
 
 static int apparmor_file_permission(struct file *file, int mask)
@@ -742,7 +723,6 @@ static int apparmor_task_setrlimit(struct task_struct *task,
 
 /**
  * apparmor_sk_alloc_security - allocate and attach the sk_security field
-??? local stream only ????
  */
 static int apparmor_sk_alloc_security(struct sock *sk, int family, gfp_t flags)
 {
@@ -776,7 +756,6 @@ static void apparmor_sk_free_security(struct sock *sk)
 static void apparmor_sk_clone_security(const struct sock *sk,
 				       struct sock *newsk)
 {
-// ??? selinux
 	struct aa_sk_cxt *cxt = SK_CXT(sk);
 	struct aa_sk_cxt *new = SK_CXT(newsk);
 
@@ -785,48 +764,8 @@ static void apparmor_sk_clone_security(const struct sock *sk,
 }
 
 #include <net/af_unix.h>
-#define print_sk(SK) \
-do { \
-	if ((SK)->sk_family == PF_UNIX) {	\
-		struct unix_sock *u = unix_sk(SK);	\
-		int len, addr_len;			\
-		char *buf;				\
-		if (!u->addr) {				\
-			addr_len = sizeof(sa_family_t);		   \
-		} else {					   \
-			addr_len = u->addr->len; \
-			buf = (char *) &u->addr->name->sun_path;	\
-		}							\
-		len = addr_len - sizeof(sa_family_t);			\
-		printk("%s: %s: f %d, t %d, p %d", __FUNCTION__, \
-		       #SK ,						\
-		       (SK)->sk_family, (SK)->sk_type, (SK)->sk_protocol); \
-		if (len <= 0)						\
-			printk(" <anonymous>");				\
-		else if (buf[0])					\
-			printk(" %s", buf);				\
-		else							\
-			printk(" %d @%.*s", len, len, buf+1);	\
-		printk("\n");						\
-	} else {							\
-		printk("%s: %s: family %d\n", __FUNCTION__, #SK , (SK)->sk_family); \
-	}								\
-} while (0)
-
-// sk->sk_socket is NULL when orphaned/being shutdown
-// socket->sk set on graft, and sock_init_data if (socket exists)
-
-#define addr_unix_len(U) ((U)->addr_len - sizeof(sa_family_t))
-#define addr_unix_anonymous(U) (addr_unix_len(U) <= 0)
-#define addr_unix_abstract_name(B) ((B)[0] == 0)
-#define addr_unix_abstract(U) (!addr_unix_anonymous(U) && addr_unix_abstract_name((U)->addr))
-#define unix_addr_fs(U) (!unix_addr_anonymous(U) && !unix_addr_abstract_name((U)->addr))
-
-
 #define UNIX_ANONYMOUS(U) (!unix_sk(U)->addr)
 /* from net/af_unix.c */
-#define UNIX_ABSTRACT(U) (!UNIX_ANONYMOUS(U) &&			\
-			  unix_sk(U)->addr->hash < UNIX_HASH_SIZE
 #define UNIX_FS(U) (!UNIX_ANONYMOUS(U) && unix_sk(U)->addr->name->sun_path[0])
 
 static int unix_fs_perm(int op, struct aa_label *label, struct sock *sk,
@@ -859,12 +798,12 @@ static int apparmor_unix_stream_connect(struct sock *sock, struct sock *other,
 	struct aa_sk_cxt *sock_cxt = SK_CXT(sock);
 	struct aa_sk_cxt *other_cxt = SK_CXT(other);
 	struct aa_sk_cxt *new_cxt = SK_CXT(newsk);
-	struct aa_label *label = __aa_get_current_label();
+	struct aa_label *label;
+	int error;
 
-	AA_BUG(!aa_label_is_subset(sock_cxt->label, __aa_current_label()));
-
-	int error = unix_fs_perm(OP_CONNECT, sock_cxt->label, other,
-				 MAY_READ | MAY_WRITE);
+	label = __aa_get_current_label();
+	error = unix_fs_perm(OP_CONNECT, sock_cxt->label, other,
+			     MAY_READ | MAY_WRITE);
 	__aa_put_current_label(label);
 
 	if (error)
@@ -872,20 +811,14 @@ static int apparmor_unix_stream_connect(struct sock *sock, struct sock *other,
 
 	/* Cross reference the peer labels for SO_PEERSEC */
 	if (new_cxt->peer) {
-		//printk("%s: new_cxt->peer\n", __FUNCTION__);
 		aa_put_label(new_cxt->peer);
 	}
 	if (sock_cxt->peer) {
-		//printk("%s: sock_cxt->peer\n", __FUNCTION__);
 		aa_put_label(sock_cxt->peer);
 	}
 
 	new_cxt->peer = aa_get_label(sock_cxt->label);
 	sock_cxt->peer = aa_get_label(other_cxt->label);
-
-//	print_sk(sock);
-//	print_sk(other);
-//	print_sk(newsk);
 
 	return 0;
 }
@@ -902,7 +835,7 @@ static int apparmor_unix_may_send(struct socket *sock, struct socket *other)
 	struct aa_label *label = __aa_get_current_label();
 	int e, error ;
 
-	// TODO update label instead
+	/* TODO update label instead */
 	AA_BUG(!aa_label_is_subset(cxt->label, label));
 
 	error = unix_fs_perm(OP_SENDMSG, cxt->label, other->sk, MAY_WRITE);
@@ -932,14 +865,12 @@ static int apparmor_socket_create(int family, int type, int protocol, int kern)
  * apparmor_socket_post_create - setup the per-socket security struct
  *
  * Note: socket likely does not have sk here
- * ??? inode vs socket storage ???
  * sk labeling done in sock_graft
  */
 static int apparmor_socket_post_create(struct socket *sock, int family,
 				       int type, int protocol, int kern)
 {
 	if (!kern) {
-/* set sock and sk label to NULL if kernel ????? */
 		SOCK_CXT(sock) = aa_get_label(aa_current_label());
 
 		if (sock->sk) {
@@ -1152,7 +1083,7 @@ static int apparmor_socket_getpeersec_dgram(struct socket *sock,
 }
 
 /**
- * apparmor_sock_graft - set the sockets isec sid to the sock's sid ???
+ * apparmor_sock_graft - set the sockets to the current_label
  *
  * could set off of SOCK_CXT(parent) but need to track inode and we can
  * just
@@ -1162,7 +1093,6 @@ static void apparmor_sock_graft(struct sock *sk, struct socket *parent)
 {
 	struct aa_sk_cxt *cxt = SK_CXT(sk);
 	if (cxt->label) {
-		//printk("%s: cxt->label\n", __FUNCTION__);
 		aa_put_label(cxt->label);
 	}
 

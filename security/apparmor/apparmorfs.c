@@ -1135,7 +1135,6 @@ static int aa_mk_null_file(struct dentry *parent)
 	int error = simple_pin_fs(parent->d_sb->s_type, &mount, &count);
 
 	if (error) {
-printk("apparmor failed to pin for .null\n");
 		return error;
 	}
 	mutex_lock(&parent->d_inode->i_mutex);
@@ -1159,7 +1158,6 @@ printk("apparmor failed to pin for .null\n");
 	aa_null.dentry = dget(dentry);
 	aa_null.mnt = mntget(mount);
 
-printk("apparmor created .null\n");
 	error = 0;
 
 out1:
