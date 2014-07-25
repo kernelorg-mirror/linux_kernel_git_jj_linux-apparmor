@@ -566,9 +566,9 @@ int aa_file_perm(int op, struct aa_label *label, struct file *file,
 	 *       delegation from unconfined tasks
 	 */
 	denied = request & ~fcxt->allow;
-	if (unconfined(label) ||
-	    (unconfined(flabel) && !(request & ~aa_map_file_to_perms(file))) ||
-	    (!denied && aa_label_is_subset(flabel, label)))
+	if (unconfined(label) || unconfined(flabel) ||
+	    (!denied && ((flabel == label) ||
+			 aa_label_is_subset(flabel, label))))
 		goto done;
 
 	/* TODO: label cross check */
