@@ -396,7 +396,7 @@ bool aa_label_replace(struct aa_labelset *ls, struct aa_label *old,
 		res = (l == new);
 		aa_put_label(l);
 	} else
-		res = __aa_label_replace(ls, old, new);
+		res = __aa_label_remove_and_insert(ls, old, new);
 	write_unlock_irqrestore(&ls->lock, flags);
 
 	return res;
