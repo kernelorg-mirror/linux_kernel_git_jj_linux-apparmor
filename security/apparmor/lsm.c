@@ -1105,6 +1105,26 @@ static void apparmor_sock_graft(struct sock *sk, struct socket *parent)
 	cxt->label = aa_get_label(__aa_current_label());
 }
 
+static int apparmor_task_kill(struct task_struct *target, struct siginfo *info,
+			      int sig, u32 secid)
+{
+	struct aa_label *cl, *tl;
+	int error;
+
+	if (secid)
+		/* TODO: after secid to label mapping is done.
+		 *  Dealing with USB IO specific behavior
+		 */
+		return 0;
+	cl = __aa_current_label();
+	tl = aa_get_task_label(target);
+	error = aa_may_signal(cl, tl, sig);
+	aa_put_label(tl);
+	__aa_put_current_label(cl);
+
+	return error;
+}
+
 
 static struct security_operations apparmor_ops = {
 	.name =				"apparmor",
@@ -1176,6 +1196,7 @@ static struct security_operations apparmor_ops = {
 	.bprm_secureexec =		apparmor_bprm_secureexec,
 
 	.task_setrlimit =		apparmor_task_setrlimit,
+	.task_kill =			apparmor_task_kill,
 };
 
 /*

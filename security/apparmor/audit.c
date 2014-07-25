@@ -61,6 +61,7 @@ const char *const op_table[] = {
 	"socket_shutdown",
 
 	"ptrace",
+	"signal",
 
 	"exec",
 	"change_hat",

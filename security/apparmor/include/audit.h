@@ -88,6 +88,7 @@ enum aa_ops {
 	OP_SOCK_SHUTDOWN,
 
 	OP_PTRACE,
+	OP_SIGNAL,
 
 	OP_EXEC,
 	OP_CHANGE_HAT,
@@ -126,6 +127,7 @@ struct apparmor_audit_data {
 					int type, protocol;
 					struct sock *sk;
 				} net;
+				int signal;
 			};
 		};
 		struct {

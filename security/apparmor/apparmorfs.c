@@ -29,6 +29,7 @@
 #include "include/audit.h"
 #include "include/context.h"
 #include "include/crypto.h"
+#include "include/ipc.h"
 #include "include/policy.h"
 #include "include/resource.h"
 
@@ -940,6 +941,11 @@ static struct aa_fs_entry aa_fs_entry_ptrace[] = {
 	{ }
 };
 
+static struct aa_fs_entry aa_fs_entry_signal[] = {
+	AA_FS_FILE_STRING("mask", AA_FS_SIG_MASK),
+	{ }
+};
+
 static struct aa_fs_entry aa_fs_entry_domain[] = {
 	AA_FS_FILE_BOOLEAN("change_hat",	1),
 	AA_FS_FILE_BOOLEAN("change_hatv",	1),
@@ -962,6 +968,7 @@ static struct aa_fs_entry aa_fs_entry_features[] = {
 	AA_FS_DIR("rlimit",			aa_fs_entry_rlimit),
 	AA_FS_DIR("caps",			aa_fs_entry_caps),
 	AA_FS_DIR("ptrace",			aa_fs_entry_ptrace),
+	AA_FS_DIR("signal",			aa_fs_entry_signal),
 	{ }
 };
 
