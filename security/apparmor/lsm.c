@@ -1001,6 +1001,22 @@ static int apparmor_socket_getpeersec_stream(struct socket *sock,
 }
 
 /**
+ * apparmor_socket_getpeersec_dgram - get security label of packet
+ * @sock: the peer socket
+ * @skb: packet data
+ * @secid: pointer to where to put the secid of the packet
+ *
+ * Sets the netlabel socket state on sk from parent
+ */
+static int apparmor_socket_getpeersec_dgram(struct socket *sock,
+					    struct sk_buff *skb, u32 *secid)
+
+{
+	/* TODO: requires secid support, and netlabel */
+	return -ENOPROTOOPT;
+}
+
+/**
  * apparmor_sock_graft - set the sockets isec sid to the sock's sid ???
  *
  * could set off of SOCK_CXT(parent) but need to track inode and we can
@@ -1075,6 +1091,7 @@ static struct security_operations apparmor_ops = {
 	.socket_setsockopt =		apparmor_socket_setsockopt,
 	.socket_shutdown =		apparmor_socket_shutdown,
 	.socket_getpeersec_stream =	apparmor_socket_getpeersec_stream,
+	.socket_getpeersec_dgram =	apparmor_socket_getpeersec_dgram,
 	.sock_graft = 			apparmor_sock_graft,
 
 	.cred_alloc_blank =		apparmor_cred_alloc_blank,
