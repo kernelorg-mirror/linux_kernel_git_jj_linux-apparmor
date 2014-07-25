@@ -1400,14 +1400,14 @@ static int label_count_str_entries(const char *str)
 
 /**
  * aa_label_parse - parse, validate and convert a text string to a label
- * @base: base namespace to use for lookups (NOT NULL)
+ * @base: base label to use for lookups (NOT NULL)
  * @str: null terminated text string (NOT NULL)
  * @gfp: allocation type
  *
  * Returns: the matching refcounted label if present
  *     else ERRPTR
  */
-struct aa_label *aa_label_parse(struct aa_namespace *base, char *str, gfp_t gfp)
+struct aa_label *aa_label_parse(struct aa_label *base, char *str, gfp_t gfp)
 {
 	struct aa_label *l, *label;
 	int i, len;

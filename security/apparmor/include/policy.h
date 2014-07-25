@@ -233,7 +233,7 @@ struct aa_profile *aa_find_child(struct aa_profile *parent, const char *name);
 struct aa_profile *aa_lookupn_profile(struct aa_namespace *ns,
 				      const char *hname, size_t n);
 struct aa_profile *aa_lookup_profile(struct aa_namespace *ns, const char *name);
-struct aa_profile *aa_fqlookupn_profile(struct aa_namespace *ns, char *fqname,
+struct aa_profile *aa_fqlookupn_profile(struct aa_label *base, char *fqname,
 					size_t n);
 struct aa_profile *aa_match_profile(struct aa_namespace *ns, const char *name);
 

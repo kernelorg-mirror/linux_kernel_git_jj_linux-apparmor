@@ -292,7 +292,7 @@ void aa_label_seq_print(struct seq_file *f, struct aa_namespace *ns,
 			struct aa_label *label, bool mode, gfp_t gfp);
 void aa_label_printk(struct aa_namespace *ns, struct aa_label *label,
 		     bool mode, gfp_t gfp);
-struct aa_label *aa_label_parse(struct aa_namespace *base, char *str,
+struct aa_label *aa_label_parse(struct aa_label *base, char *str,
 				gfp_t gfp);
 
 static inline struct aa_label *aa_get_label(struct aa_label *l)

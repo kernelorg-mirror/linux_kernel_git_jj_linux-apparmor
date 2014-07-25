@@ -213,7 +213,6 @@ static ssize_t query_label(char *buf, size_t buf_len,
 {
 	struct aa_profile *profile;
 	struct aa_label *label;
-	struct aa_namespace *ns;
 	char *label_name, *match_str;
 	size_t label_name_len, match_len;
 	u32 allow = 0, audit = 0, quiet = 0;
@@ -237,8 +236,7 @@ static ssize_t query_label(char *buf, size_t buf_len,
 	match_str = label_name + label_name_len + 1;
 	match_len = query_len - label_name_len - 1;
 
-	ns = labels_ns(aa_current_label());
-	label = aa_label_parse(ns, label_name, GFP_KERNEL);
+	label = aa_label_parse(aa_current_label(), label_name, GFP_KERNEL);
 	if (IS_ERR(label))
 		return PTR_ERR(label);
 

@@ -929,7 +929,7 @@ struct aa_profile *aa_lookup_profile(struct aa_namespace *ns, const char *hname)
 	return aa_lookupn_profile(ns, hname, strlen(hname));
 }
 
-struct aa_profile *aa_fqlookupn_profile(struct aa_namespace *base, char *fqname,
+struct aa_profile *aa_fqlookupn_profile(struct aa_label *base, char *fqname,
 					size_t n)
 {
 	struct aa_profile *profile;
@@ -939,11 +939,11 @@ struct aa_profile *aa_fqlookupn_profile(struct aa_namespace *base, char *fqname,
 
 	name = aa_splitn_fqname(fqname, n, &ns_name, &ns_len);
 	if (ns_name) {
-		ns = aa_findn_namespace(base, ns_name, ns_len);
+		ns = aa_findn_namespace(labels_ns(base), ns_name, ns_len);
 		if (!ns)
 			return NULL;
 	} else
-		ns = aa_get_namespace(base);
+		ns = aa_get_namespace(labels_ns(base));
 	profile = aa_lookupn_profile(ns, name, n - (name - fqname));
 	aa_put_namespace(ns);
 
