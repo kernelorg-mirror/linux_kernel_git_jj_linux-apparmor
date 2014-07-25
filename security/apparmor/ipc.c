@@ -82,22 +82,15 @@ static int profile_ptrace_perm(struct aa_profile *profile,
 	return aa_check_perms(profile, &perms, request, sa, audit_ptrace_cb);
 }
 
-static int x_profile_ptrace_perm(struct aa_profile *profile,
-				 struct aa_profile *peer, u32 request,
-				 struct common_audit_data *sa)
-{
-	return profile_ptrace_perm(profile, peer, request << PTRACE_PERM_SHIFT,
-				   sa);
-}
-
 static int cross_ptrace_perm(struct aa_profile *tracer,
 			     struct aa_profile *tracee, u32 request,
 			     struct common_audit_data *sa)
 {
 	if (PROFILE_MEDIATES(tracer, AA_CLASS_PTRACE))
-		return xcheck_profiles(tracer, tracee, profile_ptrace_perm,
-				       x_profile_ptrace_perm, request, sa);
-
+		return xcheck(profile_ptrace_perm(tracer, tracee, request, sa),
+			      profile_ptrace_perm(tracee, tracer,
+						  request << PTRACE_PERM_SHIFT,
+						  sa));
 	/* policy uses the old style capability check for ptrace */
 	if (profile_unconfined(tracer) || tracer == tracee)
 		return 0;
@@ -210,19 +203,12 @@ static int profile_signal_perm(struct aa_profile *profile,
 	return aa_check_perms(profile, &perms, request, sa, audit_signal_cb);
 }
 
-static int x_profile_signal_perm(struct aa_profile *profile,
-			       struct aa_profile *peer, u32 request,
-			       struct common_audit_data *sa)
-{
-	return profile_signal_perm(profile, peer, MAY_READ, sa);
-}
-
 static int aa_signal_cross_perm(struct aa_profile *sender,
 				struct aa_profile *target,
 				struct common_audit_data *sa)
 {
-	return xcheck_profiles(sender, target, profile_signal_perm,
-			       x_profile_signal_perm, MAY_WRITE, sa);
+	return xcheck(profile_signal_perm(sender, target, MAY_WRITE, sa),
+		      profile_signal_perm(target, sender, MAY_READ, sa));
 }
 
 int aa_may_signal(struct aa_label *sender, struct aa_label *target, int sig)

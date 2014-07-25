@@ -101,15 +101,6 @@ struct aa_perms {
 	error;			\
 })
 
-/* pattern: perform send/receive style paired cross check of permissions
- *
- */
-#define xcheck_profiles(P1, P2, FN1, FN2, PERM, args...)	\
-({								\
-	xcheck(FN1(P1, P2, PERM, args),				\
-	       FN2(P2, P1, PERM, args));			\
-})
-
 
 /* TODO: update for labels pointing to labels instead of profiles
 *  Note: this only works for profiles from a single namespace
@@ -155,15 +146,16 @@ int aa_check_perms(struct aa_profile *profile, struct aa_perms *perms,
 const char *aa_peer_name(struct aa_profile *peer);
 
 
-static inline int aa_cross_label_perm(struct aa_profile *profile,
-				      struct aa_profile *target,
-				      int type, u32 request, u32 reverse,
-				      u32 * deny, struct common_audit_data *sa)
+static inline int aa_xlabel_perm(struct aa_profile *profile,
+				 struct aa_profile *target,
+				 int type, u32 request, u32 reverse,
+				 u32 * deny, struct common_audit_data *sa)
 {
   /* TODO: ??? 2nd aa_profile_label_perm needs to reverse perms */
-	return xcheck_profiles(profile, target, aa_profile_label_perm,
-			       aa_profile_label_perm, request, type, deny,
-			       sa);
+	return xcheck(aa_profile_label_perm(profile, target, request, type,
+					    deny, sa),
+		      aa_profile_label_perm(target, profile, request /*??*/, type,
+					    deny, sa));
 }
 
 
