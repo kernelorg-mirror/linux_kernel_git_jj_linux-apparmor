@@ -964,9 +964,16 @@ static struct aa_fs_entry aa_fs_entry_domain[] = {
 	{ }
 };
 
+static struct aa_fs_entry aa_fs_entry_versions[] = {
+	AA_FS_FILE_BOOLEAN("v5",         1),
+	AA_FS_FILE_BOOLEAN("v6",         1),
+	{ }
+};
+
 static struct aa_fs_entry aa_fs_entry_policy[] = {
+	AA_FS_DIR("versions",                   aa_fs_entry_versions),
 	AA_FS_FILE_BOOLEAN("set_load",          1),
-	{}
+	{ }
 };
 
 static struct aa_fs_entry aa_fs_entry_mount[] = {
