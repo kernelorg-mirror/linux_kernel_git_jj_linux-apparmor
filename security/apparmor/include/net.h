@@ -27,6 +27,15 @@ struct aa_sk_cxt {
 
 #define SK_CXT(X) (X)->sk_security
 #define SOCK_CXT(X) SOCK_INODE(X)->i_security
+#define DEFINE_AUDIT_NET(NAME, OP, SK, F, T, P)				  \
+	struct lsm_network_audit NAME ## _net = { .sk = (SK),		  \
+						  .family = (F)};	  \
+	DEFINE_AUDIT_DATA(NAME,						  \
+			  (SK) ? LSM_AUDIT_DATA_NET : LSM_AUDIT_DATA_NONE,\
+			  OP);						  \
+	NAME.u.net = &(NAME ## _net);					  \
+	aad(&NAME)->net.type = type;					  \
+	aad(&NAME)->net.protocol = protocol
 
 /* struct aa_net - network confinement data
  * @allowed: basic network families permissions

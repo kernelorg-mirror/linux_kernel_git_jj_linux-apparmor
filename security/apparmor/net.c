@@ -62,16 +62,7 @@ static int audit_net(struct aa_profile *profile, int op, u16 family, int type,
 		     int protocol, struct sock *sk, int error)
 {
 	int audit_type = AUDIT_APPARMOR_AUTO;
-	struct lsm_network_audit net = { };
-	DEFINE_AUDIT_DATA(sa, LSM_AUDIT_DATA_NET, op);
-	if (!sk)
-		sa.type = LSM_AUDIT_DATA_NONE;
-	/* todo fill in socket addr info */
-	net.family = family;
-	net.sk = sk;
-	sa.u.net = &net;
-	aad(&sa)->net.type = type;
-	aad(&sa)->net.protocol = protocol;
+	DEFINE_AUDIT_NET(sa, op, sk, family, type, protocol);
 	aad(&sa)->error = error;
 
 	if (likely(!aad(&sa)->error)) {
