@@ -442,7 +442,7 @@ int apparmor_bprm_set_creds(struct linux_binprm *bprm)
 				new_profile = labels_profile(aa_get_newest_label(&ns->unconfined->label));
 				info = "ux fallback";
 			} else {
-				error = -ENOENT;
+				error = -EACCES;
 				info = "profile not found";
 				/* remove MAY_EXEC to audit as failure */
 				perms.allow &= ~MAY_EXEC;
