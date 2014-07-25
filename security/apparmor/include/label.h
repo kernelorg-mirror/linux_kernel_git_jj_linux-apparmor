@@ -211,6 +211,23 @@ int aa_label_next_confined(struct aa_label *l, int i);
 #define fn_for_each(L, P, FN) fn_for_each_XXX(L, P, FN)
 #define fn_for_each_confined(L, P, FN) fn_for_each_XXX(L, P, FN, _confined)
 
+#define fn_for_each2_XXX(L1, L2, P, FN, ...)				\
+({									\
+	struct label_it i;						\
+	int __E = 0;							\
+	label_for_each ## __VA_ARGS__(i, (L1), (L2), (P)) {		\
+		int e = (FN);						\
+		if (e)							\
+			__E = e;					\
+	}								\
+	__E;								\
+})
+
+#define fn_for_each_in_merge(L1, L2, P, FN)				\
+	fn_for_each2_XXX((L1), (L2), P, FN, _in_merge)
+#define fn_for_each_not_in_set(L1, L2, P, FN)				\
+	fn_for_each2_XXX((L1), (L2), P, FN, _not_in_set)
+
 #define LABEL_MEDIATES(L, C)						\
 ({									\
 	struct aa_profile *profile;					\

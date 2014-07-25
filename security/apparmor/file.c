@@ -477,7 +477,6 @@ static int __file_path_perm(int op, struct aa_label *label,
 		.uid = file_inode(file)->i_uid,
 		.mode = file_inode(file)->i_mode
 	};
-	struct label_it i;
 	const char *name;
 	char *buffer;
 	int flags, error;
@@ -502,23 +501,17 @@ static int __file_path_perm(int op, struct aa_label *label,
 		/* expanding cached perms need to check both label and flabel */
 		/* TODO: cache full perms so this only happens because of
 		 * conditionals */
-		label_for_each_in_merge(i, flabel, label, profile) {
-			int e = path_perm(op, profile, name, request, &cond,
-					  &perms);
-			if (e)
-				error = e;
-		}
+		error = fn_for_each_in_merge(flabel, label, profile,
+				path_perm(op, profile, name, request, &cond,
+					  &perms));
 	} else {
 		/* are we revalidating just because the label was out of date?*/
 		if (flabel == label)
 			goto out;
 
-		label_for_each_not_in_set(i, flabel, label, profile) {
-			int e = path_perm(op, profile, name, request, &cond,
-					  &perms);
-			if (e)
-				error = e;
-		}
+		error = fn_for_each_not_in_set(flabel, label, profile,
+				path_perm(op, profile, name, request, &cond,
+					  &perms));
 	}
 
 out:
