@@ -515,8 +515,8 @@ x_clear:
 	aa_clear_task_cxt_trans(cxt);
 
 audit:
-	error = aa_audit_file(profile, &perms, GFP_KERNEL, OP_EXEC, MAY_EXEC,
-			      name, target, cond.uid, info, error);
+	error = aa_audit_file(profile, &perms, OP_EXEC, MAY_EXEC, name, target,
+			      cond.uid, info, error);
 
 cleanup:
 	aa_put_label(label);
@@ -722,9 +722,9 @@ int aa_change_hat(const char *hats[], int count, u64 token, bool permtest)
 
 audit:
 	if (!permtest)
-		error = aa_audit_file(profile, &perms, GFP_KERNEL,
-				      OP_CHANGE_HAT, AA_MAY_CHANGEHAT, NULL,
-				      target, GLOBAL_ROOT_UID, info, error);
+		error = aa_audit_file(profile, &perms, OP_CHANGE_HAT,
+				      AA_MAY_CHANGEHAT, NULL, target,
+				      GLOBAL_ROOT_UID, info, error);
 
 out:
 	aa_put_profile(hat);
@@ -850,8 +850,8 @@ int aa_change_profile(const char *ns_name, const char *hname, bool onexec,
 
 audit:
 	if (!permtest)
-		error = aa_audit_file(profile, &perms, GFP_KERNEL, op, request,
-				      name, hname, GLOBAL_ROOT_UID, info, error);
+		error = aa_audit_file(profile, &perms, op, request, name,
+				      hname, GLOBAL_ROOT_UID, info, error);
 
 	aa_put_namespace(ns);
 	aa_put_profile(target);

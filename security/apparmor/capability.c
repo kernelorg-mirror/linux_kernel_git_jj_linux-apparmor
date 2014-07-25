@@ -100,7 +100,7 @@ static int audit_caps(struct aa_profile *profile, int cap, int error)
 	}
 	put_cpu_var(audit_cache);
 
-	return aa_audit(type, profile, GFP_ATOMIC, &sa, audit_cb);
+	return aa_audit(type, profile, &sa, audit_cb);
 }
 
 /**

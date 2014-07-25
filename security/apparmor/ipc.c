@@ -44,8 +44,7 @@ static int aa_audit_ptrace(struct aa_profile *profile,
 	aad(&sa)->target = target;
 	aad(&sa)->error = error;
 
-	return aa_audit(AUDIT_APPARMOR_AUTO, profile, GFP_ATOMIC, &sa,
-			audit_cb);
+	return aa_audit(AUDIT_APPARMOR_AUTO, profile, &sa, audit_cb);
 }
 
 /**

@@ -92,7 +92,6 @@ static void file_audit_cb(struct audit_buffer *ab, void *va)
  * aa_audit_file - handle the auditing of file operations
  * @profile: the profile being enforced  (NOT NULL)
  * @perms: the permissions computed for the request (NOT NULL)
- * @gfp: allocation flags
  * @op: operation being mediated
  * @request: permissions requested
  * @name: name of object being mediated (MAYBE NULL)
@@ -104,8 +103,8 @@ static void file_audit_cb(struct audit_buffer *ab, void *va)
  * Returns: %0 or error on failure
  */
 int aa_audit_file(struct aa_profile *profile, struct file_perms *perms,
-		  gfp_t gfp, int op, u32 request, const char *name,
-		  const char *target, kuid_t ouid, const char *info, int error)
+		  int op, u32 request, const char *name, const char *target,
+		  kuid_t ouid, const char *info, int error)
 {
 	int type = AUDIT_APPARMOR_AUTO;
 
@@ -148,7 +147,7 @@ int aa_audit_file(struct aa_profile *profile, struct file_perms *perms,
 	}
 
 	aad(&sa)->fs.denied = aad(&sa)->fs.request & ~perms->allow;
-	return aa_audit(type, profile, gfp, &sa, file_audit_cb);
+	return aa_audit(type, profile, &sa, file_audit_cb);
 }
 
 /**
@@ -297,9 +296,9 @@ int aa_path_perm(int op, struct aa_label *label, struct path *path,
 		}
 
 		error = fn_for_each_confined(label, profile,
-				aa_audit_file(profile, &perms, GFP_KERNEL, op,
-					      request, name, NULL, cond->uid,
-					      info, error));
+				aa_audit_file(profile, &perms, op, request,
+					      name, NULL, cond->uid, info,
+					      error));
 		goto out;
 	}
 
@@ -309,8 +308,8 @@ int aa_path_perm(int op, struct aa_label *label, struct path *path,
 			     &perms);
 		if (request & ~perms.allow)
 			e = -EACCES;
-		e = aa_audit_file(profile, &perms, GFP_KERNEL, op, request,
-				  name, NULL, cond->uid, info, e);
+		e = aa_audit_file(profile, &perms, op, request, name, NULL,
+				  cond->uid, info, e);
 		if (e)
 			error = e;
 	}
@@ -446,9 +445,8 @@ int aa_path_link(struct aa_label *label, struct dentry *old_dentry,
 		e = 0;
 
 	audit:
-		e = aa_audit_file(profile, &lperms, GFP_KERNEL, OP_LINK,
-				  request, lname, tname, cond.uid, info,
-				  e);
+		e = aa_audit_file(profile, &lperms, OP_LINK, request, lname,
+				  tname, cond.uid, info, e);
 		if (e)
 			error = e;
 	}
@@ -461,9 +459,8 @@ out:
 
 err:
 	error = fn_for_each_confined(label, profile,
-			aa_audit_file(profile, &lperms, GFP_KERNEL, OP_LINK,
-				      request, lname, tname, cond.uid, info,
-				      error));
+			aa_audit_file(profile, &lperms, OP_LINK, request,
+				      lname, tname, cond.uid, info, error));
 	goto out;
 }
 

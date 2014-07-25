@@ -168,7 +168,6 @@ void aa_audit_msg(int type, struct common_audit_data *sa,
  * aa_audit - Log a profile based audit event to the audit subsystem
  * @type: audit type for the message
  * @profile: profile to check against (NOT NULL)
- * @gfp: allocation flags to use
  * @sa: audit event (NOT NULL)
  * @cb: optional callback fn for type specific fields (MAYBE NULL)
  *
@@ -176,8 +175,7 @@ void aa_audit_msg(int type, struct common_audit_data *sa,
  *
  * Returns: error on failure
  */
-int aa_audit(int type, struct aa_profile *profile, gfp_t gfp,
-	     struct common_audit_data *sa,
+int aa_audit(int type, struct aa_profile *profile, struct common_audit_data *sa,
 	     void (*cb) (struct audit_buffer *, void *))
 {
 	BUG_ON(!profile);

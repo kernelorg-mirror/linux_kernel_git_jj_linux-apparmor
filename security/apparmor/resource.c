@@ -54,8 +54,7 @@ static int audit_resource(struct aa_profile *profile, unsigned int resource,
 	aad(&sa)->rlim.rlim = resource;
 	aad(&sa)->rlim.max = value;
 	aad(&sa)->error = error;
-	return aa_audit(AUDIT_APPARMOR_AUTO, profile, GFP_KERNEL, &sa,
-			audit_cb);
+	return aa_audit(AUDIT_APPARMOR_AUTO, profile, &sa, audit_cb);
 }
 
 /**

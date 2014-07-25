@@ -956,14 +956,13 @@ static int replacement_allowed(struct aa_profile *profile, int noreplace,
 /**
  * aa_audit_policy - Do auditing of policy changes
  * @op: policy operation being performed
- * @gfp: memory allocation flags
  * @name: name of profile being manipulated (NOT NULL)
  * @info: any extra information to be audited (MAYBE NULL)
  * @error: error code
  *
  * Returns: the error to be returned after audit is done
  */
-static int audit_policy(int op, gfp_t gfp, const char *name, const char *info,
+static int audit_policy(int op, const char *name, const char *info,
 			int error)
 {
 	DEFINE_AUDIT_DATA(sa, LSM_AUDIT_DATA_NONE, op);
@@ -972,8 +971,8 @@ static int audit_policy(int op, gfp_t gfp, const char *name, const char *info,
 	aad(&sa)->info = info;
 	aad(&sa)->error = error;
 
-	return aa_audit(AUDIT_APPARMOR_STATUS, labels_profile(__aa_current_label()), gfp,
-			&sa, NULL);
+	return aa_audit(AUDIT_APPARMOR_STATUS,
+			labels_profile(__aa_current_label()), &sa, NULL);
 }
 
 /**
@@ -986,12 +985,12 @@ bool aa_may_manage_policy(int op)
 {
 	/* check if loading policy is locked out */
 	if (aa_g_lock_policy) {
-		audit_policy(op, GFP_KERNEL, NULL, "policy_locked", -EACCES);
+		audit_policy(op, NULL, "policy_locked", -EACCES);
 		return 0;
 	}
 
 	if (!capable(CAP_MAC_ADMIN)) {
-		audit_policy(op, GFP_KERNEL, NULL, "not policy admin", -EACCES);
+		audit_policy(op, NULL, "not policy admin", -EACCES);
 		return 0;
 	}
 
@@ -1260,7 +1259,7 @@ ssize_t aa_replace_profiles(void *udata, size_t size, bool noreplace)
 		list_del_init(&ent->list);
 		op = (!ent->old && !ent->rename) ? OP_PROF_LOAD : OP_PROF_REPL;
 
-		audit_policy(op, GFP_ATOMIC, ent->new->base.name, NULL, error);
+		audit_policy(op, ent->new->base.name, NULL, error);
 
 		if (ent->old) {
 			share_name(ent->old, ent->new);
@@ -1306,7 +1305,7 @@ out:
 fail_lock:
 	mutex_unlock(&ns->lock);
 fail:
-	error = audit_policy(op, GFP_KERNEL, name, info, error);
+	error = audit_policy(op, name, info, error);
 
 	list_for_each_entry_safe(ent, tmp, &lh, list) {
 		list_del_init(&ent->list);
@@ -1378,7 +1377,7 @@ ssize_t aa_remove_profiles(char *fqname, size_t size)
 	}
 
 	/* don't fail removal if audit fails */
-	(void) audit_policy(OP_PROF_RM, GFP_KERNEL, name, info, error);
+	(void) audit_policy(OP_PROF_RM, name, info, error);
 	aa_put_namespace(ns);
 	aa_put_profile(profile);
 	return size;
@@ -1388,6 +1387,6 @@ fail_ns_lock:
 	aa_put_namespace(ns);
 
 fail:
-	(void) audit_policy(OP_PROF_RM, GFP_KERNEL, name, info, error);
+	(void) audit_policy(OP_PROF_RM, name, info, error);
 	return error;
 }

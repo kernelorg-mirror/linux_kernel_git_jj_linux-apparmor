@@ -102,8 +102,7 @@ static int audit_iface(struct aa_profile *new, const char *name,
 	aad(&sa)->info = info;
 	aad(&sa)->error = error;
 
-	return aa_audit(AUDIT_APPARMOR_STATUS, profile, GFP_KERNEL, &sa,
-			audit_cb);
+	return aa_audit(AUDIT_APPARMOR_STATUS, profile, &sa, audit_cb);
 }
 
 /* test if read will be in packed data bounds */
