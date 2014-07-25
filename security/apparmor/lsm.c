@@ -750,10 +750,39 @@ do { \
 // sk->sk_socket is NULL when orphaned/being shutdown
 // socket->sk set on graft, and sock_init_data if (socket exists)
 
+#define addr_unix_len(U) ((U)->addr_len - sizeof(sa_family_t))
+#define addr_unix_anonymous(U) (addr_unix_len(U) <= 0)
+#define addr_unix_abstract_name(B) ((B)[0] == 0)
+#define addr_unix_abstract(U) (!addr_unix_anonymous(U) && addr_unix_abstract_name((U)->addr))
+#define unix_addr_fs(U) (!unix_addr_anonymous(U) && !unix_addr_abstract_name((U)->addr))
+
+
+#define UNIX_ANONYMOUS(U) (!unix_sk(U)->addr)
+/* from net/af_unix.c */
+#define UNIX_ABSTRACT(U) (!UNIX_ANONYMOUS(U) &&			\
+			  unix_sk(U)->addr->hash < UNIX_HASH_SIZE
+#define UNIX_FS(U) (!UNIX_ANONYMOUS(U) && unix_sk(U)->addr->name->sun_path[0])
+
+static int unix_fs_perm(int op, struct aa_label *label, struct sock *sk,
+			u32 mask)
+{
+	if (!unconfined(label) && UNIX_FS(sk)) {
+		struct unix_sock *u = unix_sk(sk);
+
+		/* the sunpath may not be valid for this ns so use the path */
+		struct path_cond cond = { u->path.dentry->d_inode->i_uid,
+					  u->path.dentry->d_inode->i_mode
+		};
+
+		return aa_path_perm(op, label, &u->path, 0, mask, &cond);
+	}
+	return 0;
+}
+
 /**
  * apparmor_unix_stream_connect - check perms before making unix domain conn
  *
- * only used for alt unix socket namespace ???
+ * other is locked when this hook is called
  */
 static int apparmor_unix_stream_connect(struct sock *sock, struct sock *other,
 					struct sock *newsk)
@@ -761,16 +790,16 @@ static int apparmor_unix_stream_connect(struct sock *sock, struct sock *other,
 	struct aa_sk_cxt *sock_cxt = SK_CXT(sock);
 	struct aa_sk_cxt *other_cxt = SK_CXT(other);
 	struct aa_sk_cxt *new_cxt = SK_CXT(newsk);
+	struct aa_label *label = __aa_get_current_label();
 
+	int error = unix_fs_perm(OP_CONNECT, label, other,
+				 MAY_READ | MAY_WRITE);
+	__aa_put_current_label(label);
 
-#if 0
-	if (!perms to connect sock to other)
-
+	if (error)
 		return error;
-#endif
 
-// ??? label not updated after connection??? it would be good if the label
-// was updated as the task labeling is updated
+	/* Cross reference the peer labels for SO_PEERSEC */
 	if (new_cxt->peer) {
 		//printk("%s: new_cxt->peer\n", __FUNCTION__);
 		aa_put_label(new_cxt->peer);
@@ -793,16 +822,21 @@ static int apparmor_unix_stream_connect(struct sock *sock, struct sock *other,
 /**
  * apparmor_unix_may_send - check perms before conn or sending unix dgrams
  *
- * Only used for alt unix socket namespace ????
+ * other is locked when this hook is called
  */
 static int apparmor_unix_may_send(struct socket *sock, struct socket *other)
 {
-  //  ??? how do these play in with regular perm checks, conditional?
+	struct aa_sk_cxt *other_cxt = SK_CXT(other->sk);
+	struct aa_label *label = __aa_get_current_label();
+	int e, error ;
 
-//	print_sk(sock->sk);
-//	print_sk(other->sk);
+	error = unix_fs_perm(OP_SENDMSG, label, other->sk, MAY_WRITE);
+	e = unix_fs_perm(OP_SENDMSG, other_cxt->label, sock->sk, MAY_READ);
+	if (e)
+		error = e;
+	__aa_put_current_label(label);
 
-	return 0;
+	return error;
 }
 
 /**
