@@ -96,7 +96,7 @@ static void audit_cb(struct audit_buffer *ab, void *va)
 static int audit_iface(struct aa_profile *new, const char *name,
 		       const char *info, struct aa_ext *e, int error)
 {
-	struct aa_profile *profile = labels_profile(__aa_current_label());
+	struct aa_profile *profile = labels_profile(aa_current_raw_label());
 	DEFINE_AUDIT_DATA(sa, LSM_AUDIT_DATA_NONE, 0);
 	if (e)
 		aad(&sa)->iface.pos = e->pos - e->start;

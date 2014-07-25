@@ -973,7 +973,7 @@ static int audit_policy(int op, const char *name, const char *info,
 	aad(&sa)->error = error;
 
 	return aa_audit(AUDIT_APPARMOR_STATUS,
-			labels_profile(__aa_current_label()), &sa, NULL);
+			labels_profile(aa_current_raw_label()), &sa, NULL);
 }
 
 /**

@@ -161,7 +161,7 @@ int aa_revalidate_sk(int op, struct sock *sk)
 	if (in_interrupt())
 		label = ((struct aa_sk_cxt *) SK_CXT(sk))->label;
 	else
-		label = __aa_current_label();
+		label = aa_current_raw_label();
 
 	if (!unconfined(label))
 		error = aa_net_perm(op, label, sk->sk_family, sk->sk_type,

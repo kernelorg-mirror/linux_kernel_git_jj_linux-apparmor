@@ -24,7 +24,7 @@
 
 #define cred_cxt(X) (X)->security
 #define current_cxt() cred_cxt(current_cred())
-#define current_ns() labels_ns(__aa_current_label())
+#define current_ns() labels_ns(aa_current_raw_label())
 
 /**
  * struct aa_task_cxt - primary label for confined tasks
@@ -57,14 +57,14 @@ struct aa_label *aa_get_task_label(struct task_struct *task);
 
 
 /**
- * aa_cred_label - obtain cred's label
+ * aa_cred_raw_label - obtain cred's label
  * @cred: cred to obtain label from  (NOT NULL)
  *
  * Returns: confining label
  *
  * does NOT increment reference count
  */
-static inline struct aa_label *aa_cred_label(const struct cred *cred)
+static inline struct aa_label *aa_cred_raw_label(const struct cred *cred)
 {
 	struct aa_task_cxt *cxt = cred_cxt(cred);
 	BUG_ON(!cxt || !cxt->label);
@@ -79,20 +79,20 @@ static inline struct aa_label *aa_cred_label(const struct cred *cred)
  */
 static inline struct aa_label *aa_get_newest_cred_label(const struct cred *cred)
 {
-	return aa_get_newest_label(aa_cred_label(cred));
+	return aa_get_newest_label(aa_cred_raw_label(cred));
 }
 
 /**
- * __aa_task_label - retrieve another task's label
+ * __aa_task_raw_label - retrieve another task's label
  * @task: task to query  (NOT NULL)
  *
  * Returns: @task's label without incrementing its ref count
  *
  * If @task != current needs to be called in RCU safe critical section
  */
-static inline struct aa_label *__aa_task_label(struct task_struct *task)
+static inline struct aa_label *__aa_task_raw_label(struct task_struct *task)
 {
-	return aa_cred_label(__task_cred(task));
+	return aa_cred_raw_label(__task_cred(task));
 }
 
 /**
@@ -103,20 +103,20 @@ static inline struct aa_label *__aa_task_label(struct task_struct *task)
  */
 static inline bool __aa_task_is_confined(struct task_struct *task)
 {
-	return !unconfined(__aa_task_label(task));
+	return !unconfined(__aa_task_raw_label(task));
 }
 
 /**
- * __aa_current_label - find the current tasks confining label
+ * aa_current_raw_label - find the current tasks confining label
  *
  * Returns: up to date confining label or the ns unconfined label (NOT NULL)
  *
  * This fn will not update the tasks cred to the most up to date version
  * of the label so it is safe to call when inside of locks.
  */
-static inline struct aa_label *__aa_current_label(void)
+static inline struct aa_label *aa_current_raw_label(void)
 {
-	return aa_cred_label(current_cred());
+	return aa_cred_raw_label(current_cred());
 }
 
 /**
@@ -130,7 +130,7 @@ static inline struct aa_label *__aa_current_label(void)
  */
 static inline struct aa_label *__aa_get_current_label(void)
 {
-	struct aa_label *l = __aa_current_label();
+	struct aa_label *l = aa_current_raw_label();
 
 	if (label_invalid(l))
 		l = aa_get_newest_label(l);
@@ -146,7 +146,7 @@ static inline struct aa_label *__aa_get_current_label(void)
  */
 static inline void __aa_put_current_label(struct aa_label *label)
 {
-	if (label != __aa_current_label())
+	if (label != aa_current_raw_label())
 		aa_put_label(label);
 }
 

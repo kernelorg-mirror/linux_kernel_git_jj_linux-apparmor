@@ -79,7 +79,7 @@ struct aa_label *aa_get_task_label(struct task_struct *task)
 	struct aa_label *p;
 
 	rcu_read_lock();
-	p = aa_get_newest_label(__aa_task_label(task));
+	p = aa_get_newest_label(__aa_task_raw_label(task));
 	rcu_read_unlock();
 
 	return p;
