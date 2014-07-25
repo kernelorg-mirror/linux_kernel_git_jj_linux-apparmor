@@ -306,41 +306,33 @@ static int do_match_mnt(struct aa_dfa *dfa, unsigned int start,
  */
 static int match_mnt(struct aa_profile *profile, const char *mntpnt,
 		     const char *devname, const char *type,
-		     unsigned long flags, void *data, bool binary,
-		     struct file_perms *perms, const char **info)
+		     unsigned long flags, void *data, bool binary)
 {
-	int pos;
+	struct file_perms perms = { };
+	const char *info = NULL;
+	int pos, error = -EACCES;
 
 	if (!profile->policy.dfa)
-		return -EACCES;
+		goto audit;
 
 	pos = do_match_mnt(profile->policy.dfa,
 			   profile->policy.start[AA_CLASS_MOUNT],
-			   mntpnt, devname, type, flags, data, binary, perms);
+			   mntpnt, devname, type, flags, data, binary, &perms);
 	if (pos) {
-		*info = mnt_info_table[pos];
-		return -EACCES;
+		info = mnt_info_table[pos];
+		goto audit;
 	}
+	error = 0;
 
-	return 0;
+audit:
+	return audit_mount(profile, OP_MOUNT, mntpnt, devname, type, NULL,
+			   flags, data, AA_MAY_MOUNT, &perms, info, error);
 }
 
 static int path_flags(struct aa_profile *profile, struct path *path)
 {
 	return profile->path_flags |
 		S_ISDIR(path->dentry->d_inode->i_mode) ? PATH_IS_DIR : 0;
-}
-
-static int profile_remount(struct aa_profile *profile, const char *name,
-			   unsigned long flags, void *data, int binary)
-{
-	struct file_perms perms = { };
-	const char *info = NULL;
-	int e = match_mnt(profile, name, NULL, NULL, flags, data, binary,
-			  &perms, &info);
-	return audit_mount(profile, OP_MOUNT, name, NULL, NULL, NULL, flags,
-			   data, AA_MAY_MOUNT, &perms, info, e);
-
 }
 
 int aa_remount(struct aa_label *label, struct path *path, unsigned long flags,
@@ -364,22 +356,13 @@ int aa_remount(struct aa_label *label, struct path *path, unsigned long flags,
 	}
 
 	error = fn_for_each_confined(label, profile,
-			profile_remount(profile, name, flags, data, binary));
+			match_mnt(profile, name, NULL, NULL, flags, data,
+				  binary));
+
 out:
 	put_buffers(buffer);
 
 	return error;
-}
-
-static int profile_bind_mnt(struct aa_profile *profile, const char *name,
-			    const char *old_name, unsigned long flags)
-{
-	struct file_perms perms = { };
-	const char *info = NULL;
-	int e = match_mnt(profile, name, old_name, NULL, flags, NULL, 0,
-			  &perms, &info);
-	return audit_mount(profile, OP_MOUNT, name, old_name, NULL, NULL,
-			   flags, NULL, AA_MAY_MOUNT, &perms, info, e);
 }
 
 int aa_bind_mount(struct aa_label *label, struct path *path,
@@ -414,7 +397,8 @@ int aa_bind_mount(struct aa_label *label, struct path *path,
 		goto error;
 
 	error = fn_for_each_confined(label, profile,
-			profile_bind_mnt(profile, name, old_name, flags));
+			match_mnt(profile, name, old_name, NULL, flags, NULL,
+				  0));
 
 out:
 	put_buffers(buffer, old_buffer);
@@ -427,17 +411,6 @@ error:
 				    NULL, flags, NULL, AA_MAY_MOUNT, &nullperms,
 				    info, error));
 	goto out;
-}
-
-static int profile_change_type(struct aa_profile *profile, const char *name,
-			       unsigned long flags)
-{
-	struct file_perms perms = { };
-	const char *info = NULL;
-	int e = match_mnt(profile, name, NULL, NULL, flags, NULL, 0, &perms,
-			  &info);
-	return audit_mount(profile, OP_MOUNT, name, NULL, NULL, NULL, flags,
-			   NULL, AA_MAY_MOUNT, &perms, info, e);
 }
 
 int aa_mount_change_type(struct aa_label *label, struct path *path,
@@ -465,23 +438,12 @@ int aa_mount_change_type(struct aa_label *label, struct path *path,
 	}
 
 	error = fn_for_each_confined(label, profile,
-			profile_change_type(profile,name, flags));
+			match_mnt(profile, name, NULL, NULL, flags, NULL, 0));
 
 out:
 	put_buffers(buffer);
 
 	return error;
-}
-
-static int profile_move_mnt(struct aa_profile *profile, const char *name,
-			    const char *old_name)
-{
-	struct file_perms perms = { };
-	const char *info = NULL;
-	int e = match_mnt(profile, name, old_name, NULL, MS_MOVE, NULL, 0,
-			  &perms, &info);
-	return audit_mount(profile, OP_MOUNT, name, old_name, NULL, NULL,
-			   MS_MOVE, NULL, AA_MAY_MOUNT, &perms, info, e);
 }
 
 int aa_move_mount(struct aa_label *label, struct path *path,
@@ -514,7 +476,8 @@ int aa_move_mount(struct aa_label *label, struct path *path,
 		goto error;
 
 	error = fn_for_each_confined(label, profile,
-			profile_move_mnt(profile, name, old_name));
+			match_mnt(profile, name, old_name, NULL, MS_MOVE, NULL,
+				  0));
 
 out:
 	put_buffers(buffer, old_buffer);
@@ -527,18 +490,6 @@ error:
 				    NULL, MS_MOVE, NULL, AA_MAY_MOUNT,
 				    &nullperms, info, error));
 	goto out;
-}
-
-static int profile_new_mnt(struct aa_profile *profile, const char *name,
-			   const char *dev_name, const char *type,
-			   unsigned long flags, void *data, int binary)
-{
-	struct file_perms perms = { };
-	const char *info = NULL;
-	int e = match_mnt(profile, name, dev_name, type, flags, data, binary,
-			  &perms, &info);
-	return audit_mount(profile, OP_MOUNT, name, dev_name, type, NULL,
-			   flags, data, AA_MAY_MOUNT, &perms, info, e);
 }
 
 int aa_new_mount(struct aa_label *label, const char *orig_dev_name,
@@ -591,8 +542,8 @@ int aa_new_mount(struct aa_label *label, const char *orig_dev_name,
 		goto error;
 
 	error = fn_for_each_confined(label, profile,
-			profile_new_mnt(profile, name, dev_name, type, flags,
-					data, binary));
+			match_mnt(profile, name, dev_name, type, flags, data,
+				  binary));
 
 cleanup:
 	put_buffers(buffer, dev_buffer);
