@@ -1552,6 +1552,7 @@ static struct aa_label *__label_update(struct aa_label *label)
 		}
 		label->replacedby = r;
 	}
+	/* circular ref only broken by replace or remove */
 	l->replacedby = aa_get_replacedby(label->replacedby);
 	__aa_update_replacedby(label, l);
 
@@ -1570,14 +1571,14 @@ static struct aa_label *__label_update(struct aa_label *label)
 
 		if (labels_set(label) == labels_set(l)) {
 			struct aa_labelset *ls = labels_set(label);
+			/* should not fail, as done within ns lock */
 			tmp = aa_label_remove_and_insert(ls, label, l);
-//??? this needs to be able to fail
 			AA_BUG(tmp != l);
 			aa_put_label(tmp);
 		} else {
+			/* should not fail, as done within ns lock */
 			aa_label_remove(labels_set(label), label);
 			tmp = aa_label_insert(labels_set(l), l);
-//??? this needs to be able to fail
 			AA_BUG(tmp != l);
 			aa_put_label(tmp);
 		}
@@ -1587,11 +1588,6 @@ static struct aa_label *__label_update(struct aa_label *label)
 	}
 
 	return l;
-
-//??? replacedby should be updated atomically ???
-fail:
-	aa_label_free(l);
-	return NULL;
 }
 
 /**
