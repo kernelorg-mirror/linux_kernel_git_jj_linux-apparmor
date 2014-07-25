@@ -537,7 +537,7 @@ static int apparmor_sb_mount(const char *dev_name, struct path *path,
 
 	flags &= ~AA_MS_IGNORE_MASK;
 
-	label = aa_current_raw_label();
+	label = aa_begin_current_label();
 	if (!unconfined(label)) {
 		if (flags & MS_REMOUNT)
 			error = aa_remount(label, path, flags, data);
@@ -552,6 +552,8 @@ static int apparmor_sb_mount(const char *dev_name, struct path *path,
 			error = aa_new_mount(label, dev_name, path, type,
 					     flags, data);
 	}
+	aa_end_current_label(label);
+
 	return error;
 }
 
@@ -560,9 +562,10 @@ static int apparmor_sb_umount(struct vfsmount *mnt, int flags)
 	struct aa_label *label;
 	int error = 0;
 
-	label = aa_current_raw_label();
+	label = aa_begin_current_label();
 	if (!unconfined(label))
 		error = aa_umount(label, mnt, flags);
+	aa_end_current_label(label);
 
 	return error;
 }
@@ -572,9 +575,10 @@ static int apparmor_sb_pivotroot(struct path *old_path, struct path *new_path)
 	struct aa_label *label;
 	int error = 0;
 
-	label = aa_current_raw_label();
+	label = aa_begin_current_label();
 	if (!unconfined(label))
 		error = aa_pivotroot(label, old_path, new_path);
+	aa_end_current_label(label);
 
 	return error;
 }
@@ -687,7 +691,8 @@ void apparmor_bprm_committing_creds(struct linux_binprm *bprm)
 	struct aa_task_cxt *new_cxt = cred_cxt(bprm->cred);
 
 	/* bail out if unconfined or not changing profile */
-	if ((new_cxt->label == label) || (unconfined(new_cxt->label)))
+	if ((new_cxt->label->replacedby == label->replacedby) ||
+	    (unconfined(new_cxt->label)))
 		return;
 
 	aa_inherit_files(bprm->cred, current->files);
@@ -1095,7 +1100,7 @@ static void apparmor_sock_graft(struct sock *sk, struct socket *parent)
 		aa_put_label(cxt->label);
 	}
 
-	cxt->label = aa_get_label(aa_current_raw_label());
+	cxt->label = aa_get_current_label();
 }
 
 static int apparmor_task_kill(struct task_struct *target, struct siginfo *info,
