@@ -592,7 +592,7 @@ static int apparmor_setprocattr(struct task_struct *task, char *name,
 fail:
 	sa.type = LSM_AUDIT_DATA_NONE;
 	sa.aad = &aad;
-	aad.profile = labels_profile(aa_current_label());
+	aad.label = aa_current_label();
 	aad.op = OP_SETPROCATTR;
 	aad.info = name;
 	aad.error = -EINVAL;

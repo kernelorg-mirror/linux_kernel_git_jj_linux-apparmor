@@ -129,14 +129,21 @@ static void audit_pre(struct audit_buffer *ab, void *ca)
 			audit_log_format(ab, " error=%d", sa->aad->error);
 	}
 
-	if (sa->aad->profile) {
-		struct aa_profile *profile = sa->aad->profile;
-		if (profile->ns != root_ns) {
-			audit_log_format(ab, " namespace=");
-			audit_log_untrustedstring(ab, profile->ns->base.hname);
+	if (sa->aad->label) {
+		struct aa_label *label = sa->aad->label;
+		if (label_isprofile(label)) {
+			struct aa_profile *profile = labels_profile(label);
+			if (profile->ns != root_ns) {
+				audit_log_format(ab, " namespace=");
+				audit_log_untrustedstring(ab,
+						       profile->ns->base.hname);
+			}
+			audit_log_format(ab, " profile=");
+			audit_log_untrustedstring(ab, profile->base.hname);
+		} else {
+			audit_log_format(ab, " label=");
+			aa_label_audit(ab, root_ns, label, false, GFP_ATOMIC);
 		}
-		audit_log_format(ab, " profile=");
-		audit_log_untrustedstring(ab, profile->base.hname);
 	}
 
 	if (sa->aad->name) {
@@ -194,7 +201,7 @@ int aa_audit(int type, struct aa_profile *profile, gfp_t gfp,
 		type = AUDIT_APPARMOR_KILL;
 
 	if (!profile_unconfined(profile))
-		sa->aad->profile = profile;
+		sa->aad->label = &profile->label;
 
 	aa_audit_msg(type, sa, cb);
 

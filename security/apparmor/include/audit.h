@@ -22,8 +22,7 @@
 #include <linux/slab.h>
 
 #include "file.h"
-
-struct aa_profile;
+#include "label.h"
 
 extern const char *const audit_mode_names[];
 #define AUDIT_MAX_INDEX 5
@@ -106,7 +105,7 @@ struct apparmor_audit_data {
 	int error;
 	int op;
 	int type;
-	void *profile;
+	struct aa_label *label;
 	const char *name;
 	const char *info;
 	union {
