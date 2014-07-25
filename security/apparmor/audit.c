@@ -39,6 +39,7 @@ const char *const op_table[] = {
 	"getattr",
 	"open",
 
+	"file_receive",
 	"file_perm",
 	"file_lock",
 	"file_mmap",

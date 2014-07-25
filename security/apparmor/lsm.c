@@ -451,6 +451,30 @@ static int common_file_perm(int op, struct file *file, u32 mask)
 	return error;
 }
 
+static int apparmor_file_receive(struct file *file)
+{
+	struct aa_file_cxt *fcxt = file_cxt(file);
+	struct aa_label *label;
+	int error;
+
+int foo = 0;
+label = __aa_get_current_label();
+
+rcu_read_lock();
+if (label != fcxt->label) {
+	foo = 1;
+	printk("apparmor %s received file with labeling ", label->hname);
+	aa_label_printk(labels_ns(label), rcu_dereference(fcxt->label), false, GFP_ATOMIC);
+ }
+rcu_read_unlock();
+__aa_put_current_label(label);
+
+	error = common_file_perm(OP_FRECEIVE, file, aa_map_file_to_perms(file));
+if (foo)
+printk(" result %d\n", error);
+	return error;
+}
+
 static int apparmor_file_permission(struct file *file, int mask)
 {
 	return common_file_perm(OP_FPERM, file, mask);
@@ -664,6 +688,7 @@ static struct security_operations apparmor_ops = {
 	.inode_getattr =                apparmor_inode_getattr,
 
 	.file_open =			apparmor_file_open,
+	.file_receive =			apparmor_file_receive,
 	.file_permission =		apparmor_file_permission,
 	.file_alloc_security =		apparmor_file_alloc_security,
 	.file_free_security =		apparmor_file_free_security,

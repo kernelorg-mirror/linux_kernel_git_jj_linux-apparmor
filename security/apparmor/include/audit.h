@@ -66,6 +66,7 @@ enum aa_ops {
 	OP_GETATTR,
 	OP_OPEN,
 
+	OP_FRECEIVE,
 	OP_FPERM,
 	OP_FLOCK,
 	OP_FMMAP,
