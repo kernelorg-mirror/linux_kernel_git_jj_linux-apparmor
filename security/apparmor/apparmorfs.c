@@ -243,6 +243,8 @@ static ssize_t query_label(char *buf, size_t buf_len,
 		state = aa_dfa_match_len(dfa, profile->file.start,
 					 match_str + 1, match_len - 1);
 	} else if (profile->policy.dfa) {
+		if (!PROFILE_MEDIATES_SAFE(profile, *match_str))
+			goto out;	/* no change to current perms */
 		dfa = profile->policy.dfa;
 		state = aa_dfa_match_len(dfa, profile->policy.start[0],
 					 match_str, match_len);
@@ -256,6 +258,7 @@ static ssize_t query_label(char *buf, size_t buf_len,
 		/* TODO: do we want to accumulate audit/quiet
 		   or just clear as currently doing */
 		allow = audit = quiet = 0;
+out:
 	aa_put_profile(profile);
 
 	return scnprintf(buf, buf_len,
