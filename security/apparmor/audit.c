@@ -193,7 +193,7 @@ int aa_audit(int type, struct aa_profile *profile, gfp_t gfp,
 	if (KILL_MODE(profile) && type == AUDIT_APPARMOR_DENIED)
 		type = AUDIT_APPARMOR_KILL;
 
-	if (!unconfined(profile))
+	if (!profile_unconfined(profile))
 		sa->aad->profile = profile;
 
 	aa_audit_msg(type, sa, cb);

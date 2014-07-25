@@ -30,6 +30,7 @@
 #include "label.h"
 #include "resource.h"
 
+extern const char *aa_hidden_ns_name;
 extern const char *const aa_profile_mode_names[];
 #define APPARMOR_MODE_NAMES_MAX_INDEX 4
 
@@ -216,10 +217,10 @@ void aa_free_namespace_kref(struct kref *kref);
 struct aa_namespace *aa_find_namespace(struct aa_namespace *root,
 				       const char *name);
 
+struct aa_label *aa_setup_default_label(void);
 
 struct aa_profile *aa_alloc_profile(const char *name);
 struct aa_profile *aa_new_null_profile(struct aa_profile *parent, int hat);
-struct aa_profile *aa_setup_default_profile(void);
 void aa_free_profile(struct aa_profile *profile);
 void aa_free_profile_kref(struct kref *kref);
 struct aa_profile *aa_find_child(struct aa_profile *parent, const char *name);
@@ -235,7 +236,7 @@ ssize_t aa_remove_profiles(char *name, size_t size);
 #define PROF_REPLACE 0
 
 #define profile_unconfined(X) ((X)->mode == APPARMOR_UNCONFINED)
-#define unconfined(X) profile_unconfined(X)
+
 
 #define PROFILE_MEDIATES(P, T)  ((P)->policy.start[(T)])
 /* safe version of POLICY_MEDIATES for full range input */

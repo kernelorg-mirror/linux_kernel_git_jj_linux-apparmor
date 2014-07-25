@@ -33,14 +33,14 @@
  *
  * Returns: size of string placed in @string else error code on failure
  */
-int aa_getprocattr(struct aa_profile *profile, char **string)
+int aa_getprocattr(struct aa_label *label, char **string)
 {
 	char *str;
 	int len = 0, mode_len = 0, ns_len = 0, name_len;
-	const char *mode_str = aa_profile_mode_names[profile->mode];
+	const char *mode_str = aa_profile_mode_names[labels_profile(label)->mode];
 	const char *ns_name = NULL;
-	struct aa_namespace *ns = profile->ns;
-	struct aa_namespace *current_ns = __aa_current_profile()->ns;
+	struct aa_namespace *ns = labels_ns(label);
+	struct aa_namespace *current_ns = labels_ns(__aa_current_label());
 	bool unconfined;
 	char *s;
 
@@ -55,11 +55,11 @@ int aa_getprocattr(struct aa_profile *profile, char **string)
 		ns_len += 4;
 
 	/* 'unconfined' profile don't have a mode string appended */
-	unconfined = profile == profile->ns->unconfined;
+	unconfined = labels_profile(label) == labels_ns(label)->unconfined;
 	if (!unconfined)
 		mode_len = strlen(mode_str) + 3;	/* + 3 for _() */
 
-	name_len = strlen(profile->base.hname);
+	name_len = strlen(label->hname);
 	len = mode_len + ns_len + name_len + 1;	    /* + 1 for \n */
 	s = str = kmalloc(len + 1, GFP_KERNEL);	    /* + 1 \0 */
 	if (!str)
@@ -72,9 +72,9 @@ int aa_getprocattr(struct aa_profile *profile, char **string)
 	}
 	if (unconfined)
 		/* mode string not being appended */
-		sprintf(s, "%s\n", profile->base.hname);
+		sprintf(s, "%s\n", label->hname);
 	else
-		sprintf(s, "%s (%s)\n", profile->base.hname, mode_str);
+		sprintf(s, "%s (%s)\n", label->hname, mode_str);
 	*string = str;
 
 	/* NOTE: len does not include \0 of string, not saved as part of file */

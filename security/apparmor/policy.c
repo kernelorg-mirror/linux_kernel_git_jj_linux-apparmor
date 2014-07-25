@@ -226,7 +226,7 @@ static struct aa_policy *__policy_strn_find(struct list_head *head,
  * Routines for AppArmor namespaces
  */
 
-static const char *hidden_ns_name = "---";
+const char *aa_hidden_ns_name = "---";
 /**
  * aa_ns_visible - test if @view is visible from @curr
  * @curr: namespace to treat as the parent (NOT NULL)
@@ -268,7 +268,7 @@ const char *aa_ns_name(struct aa_namespace *curr, struct aa_namespace *view)
 		 */
 		return view->base.hname + strlen(curr->base.hname) + 2;
 	} else
-		return hidden_ns_name;
+		return aa_hidden_ns_name;
 }
 
 /**
@@ -392,7 +392,7 @@ static struct aa_namespace *aa_prepare_namespace(const char *name)
 {
 	struct aa_namespace *ns, *root;
 
-	root = aa_current_profile()->ns;
+	root = labels_ns(aa_current_label());
 
 	mutex_lock(&root->lock);
 
@@ -722,9 +722,9 @@ fail:
 }
 
 /**
- * aa_setup_default_profile - create the initial default profile
+ * aa_setup_default_label - create the initial default label
  */
-struct aa_profile *aa_setup_default_profile(void)
+struct aa_label *aa_setup_default_label(void)
 {
 	struct aa_profile *profile = aa_alloc_profile("default");
 	if (!profile)
@@ -744,7 +744,7 @@ struct aa_profile *aa_setup_default_profile(void)
 	}
 	__add_profile(&root_ns->base.profiles, profile);
 
-	return profile;
+	return &profile->label;
 }
 
 /* TODO: profile accounting - setup in remove */
@@ -953,7 +953,7 @@ static int audit_policy(int op, gfp_t gfp, const char *name, const char *info,
 	aad.info = info;
 	aad.error = error;
 
-	return aa_audit(AUDIT_APPARMOR_STATUS, __aa_current_profile(), gfp,
+	return aa_audit(AUDIT_APPARMOR_STATUS, labels_profile(__aa_current_label()), gfp,
 			&sa, NULL);
 }
 
@@ -1322,7 +1322,7 @@ ssize_t aa_remove_profiles(char *fqname, size_t size)
 		goto fail;
 	}
 
-	root = aa_current_profile()->ns;
+	root = labels_ns(aa_current_label());
 
 	if (fqname[0] == ':') {
 		char *ns_name;

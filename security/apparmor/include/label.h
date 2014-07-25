@@ -151,6 +151,7 @@ struct aa_label {
 
 #define label_isprofile(X) ((X)->flags & FLAG_PROFILE)
 #define label_unconfined(X) ((X)->flags & FLAG_UNCONFINED)
+#define unconfined(X) label_unconfined(X)
 #define label_invalid(X) ((X)->flags & FLAG_INVALID)
 #define __label_invalidate(X) do {	   \
 	labelsetstats_inc(labels_set(X), invalid); \

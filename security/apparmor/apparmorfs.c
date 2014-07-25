@@ -232,7 +232,7 @@ static ssize_t query_label(char *buf, size_t buf_len,
 	match_str = label_name + label_name_len + 1;
 	match_len = query_len - label_name_len - 1;
 
-	profile = aa_lookup_profile(aa_current_profile()->ns, label_name);
+	profile = aa_lookup_profile(labels_ns(aa_current_label()), label_name);
 	if (!profile)
 		return -ENOENT;
 
@@ -826,7 +826,7 @@ static struct aa_profile *next_profile(struct aa_namespace *root,
 static void *p_start(struct seq_file *f, loff_t *pos)
 {
 	struct aa_profile *profile = NULL;
-	struct aa_namespace *root = aa_current_profile()->ns;
+	struct aa_namespace *root = labels_ns(aa_current_label());
 	loff_t l = *pos;
 	f->private = aa_get_namespace(root);
 

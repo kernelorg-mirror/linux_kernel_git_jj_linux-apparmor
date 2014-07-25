@@ -79,7 +79,7 @@ int aa_map_resource(int resource)
 
 /**
  * aa_task_setrlimit - test permission to set an rlimit
- * @profile - profile confining the task  (NOT NULL)
+ * @label - label confining the task  (NOT NULL)
  * @task - task the resource is being set on
  * @resource - the resource being set
  * @new_rlim - the new resource limit  (NOT NULL)
@@ -88,14 +88,14 @@ int aa_map_resource(int resource)
  *
  * Returns: 0 or error code if setting resource failed
  */
-int aa_task_setrlimit(struct aa_profile *profile, struct task_struct *task,
+int aa_task_setrlimit(struct aa_label *label, struct task_struct *task,
 		      unsigned int resource, struct rlimit *new_rlim)
 {
-	struct aa_profile *task_profile;
+	struct aa_label *task_label;
 	int error = 0;
 
 	rcu_read_lock();
-	task_profile = aa_get_profile(aa_cred_profile(__task_cred(task)));
+	task_label = aa_get_label(aa_cred_label(__task_cred(task)));
 	rcu_read_unlock();
 
 	/* TODO: extend resource control to handle other (non current)
@@ -103,26 +103,30 @@ int aa_task_setrlimit(struct aa_profile *profile, struct task_struct *task,
 	 * that the task is setting the resource of a task confined with
 	 * the same profile.
 	 */
-	if (profile != task_profile ||
-	    (profile->rlimits.mask & (1 << resource) &&
-	     new_rlim->rlim_max > profile->rlimits.limits[resource].rlim_max))
+	if (label != task_label ||
+	    (labels_profile(label)->rlimits.mask & (1 << resource) &&
+	     new_rlim->rlim_max > labels_profile(label)->rlimits.limits[resource].rlim_max))
 		error = -EACCES;
 
-	aa_put_profile(task_profile);
+	aa_put_label(task_label);
 
-	return audit_resource(profile, resource, new_rlim->rlim_max, error);
+	return audit_resource(labels_profile(label), resource, new_rlim->rlim_max, error);
 }
 
 /**
  * __aa_transition_rlimits - apply new profile rlimits
- * @old: old profile on task  (NOT NULL)
- * @new: new profile with rlimits to apply  (NOT NULL)
+ * @old_l: old label on task  (NOT NULL)
+ * @new_l: new label with rlimits to apply  (NOT NULL)
  */
-void __aa_transition_rlimits(struct aa_profile *old, struct aa_profile *new)
+void __aa_transition_rlimits(struct aa_label *old_l, struct aa_label *new_l)
 {
 	unsigned int mask = 0;
 	struct rlimit *rlim, *initrlim;
+	struct aa_profile *old, *new;
 	int i;
+
+	old = labels_profile(old_l);
+	new = labels_profile(new_l);
 
 	/* for any rlimits the profile controlled reset the soft limit
 	 * to the less of the tasks hard limit and the init tasks soft limit
