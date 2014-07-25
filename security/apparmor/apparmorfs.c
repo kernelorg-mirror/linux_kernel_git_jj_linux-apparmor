@@ -212,7 +212,8 @@ static ssize_t query_label(char *buf, size_t buf_len,
 	char *label_name, *match_str;
 	size_t label_name_len, match_len;
 	u32 allow = 0, audit = 0, quiet = 0;
-	unsigned int state;
+	unsigned int state = 0;
+	struct aa_dfa *dfa;
 
 	if (!query_len)
 		return -EINVAL;
@@ -237,15 +238,20 @@ static ssize_t query_label(char *buf, size_t buf_len,
 
 	allow = 0xffffffff;
 	audit = quiet = 0x00000000;
-	if (profile->policy.dfa) {
-		state = aa_dfa_match_len(profile->policy.dfa,
-					 profile->policy.start[0],
+	if (profile->file.dfa && *match_str == AA_CLASS_FILE) {
+		dfa = profile->file.dfa;
+		state = aa_dfa_match_len(dfa, profile->file.start,
+					 match_str + 1, match_len - 1);
+	} else if (profile->policy.dfa) {
+		dfa = profile->policy.dfa;
+		state = aa_dfa_match_len(dfa, profile->policy.start[0],
 					 match_str, match_len);
+	}
+	if (state) {
 		if (!COMPLAIN_MODE(profile))
-			allow &= dfa_user_allow(profile->policy.dfa, state);
-		audit |= dfa_user_audit(profile->policy.dfa, state);
-		quiet |= dfa_user_quiet(profile->policy.dfa, state);
-
+			allow &= dfa_user_allow(dfa, state);
+		audit |= dfa_user_audit(dfa, state);
+		quiet |= dfa_user_quiet(dfa, state);
 	} else
 		/* TODO: do we want to accumulate audit/quiet
 		   or just clear as currently doing */
