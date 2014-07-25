@@ -117,7 +117,7 @@ enum label_flags {
 	FLAG_REVOKED = 0x2000,		/* label has revocation in it */
 
 	/* These flags must correspond with PATH_flags */
-	FLAG_MEDIATE_DELETED = 0x10000, /* mediate instead delegate deleted */
+	/* TODO: add new path flags */
 };
 
 struct aa_label;

@@ -26,6 +26,7 @@
 #include "include/context.h"
 #include "include/crypto.h"
 #include "include/match.h"
+#include "include/path.h"
 #include "include/policy.h"
 #include "include/policy_unpack.h"
 
@@ -534,12 +535,9 @@ static struct aa_profile *unpack_profile(struct aa_ext *e)
 		goto fail;
 
 	/* path_flags is optional */
-	if (unpack_u32(e, &profile->path_flags, "path_flags"))
-		profile->path_flags |= profile->label.flags &
-			FLAG_MEDIATE_DELETED;
-	else
+	if (!unpack_u32(e, &profile->path_flags, "path_flags"))
 		/* set a default value if path_flags field is not present */
-		profile->path_flags = FLAG_MEDIATE_DELETED;
+		profile->path_flags = PATH_MEDIATE_DELETED;
 
 	if (!unpack_u32(e, &(profile->caps.allow.cap[0]), NULL))
 		goto fail;
