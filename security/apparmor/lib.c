@@ -118,3 +118,24 @@ void aa_str_kref(struct kref *kref)
 {
 	kfree(container_of(kref, struct counted_str, count));
 }
+
+const char *aa_imode_name(umode_t mode)
+{
+	switch(mode & S_IFMT) {
+	case S_IFSOCK:
+		return "sock";
+	case S_IFLNK:
+		return "link";
+	case S_IFREG:
+		return "reg";
+	case S_IFBLK:
+		return "blkdev";
+	case S_IFDIR:
+		return "dir";
+	case S_IFCHR:
+		return "chrdev";
+	case S_IFIFO:
+		return "fifo";
+	}
+	return "unknown";
+}

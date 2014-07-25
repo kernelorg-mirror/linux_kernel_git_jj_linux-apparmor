@@ -153,5 +153,6 @@ static inline void aa_put_str(__counted char *str)
 		kref_put(&str_to_counted(str)->count, aa_str_kref);
 }
 
+const char *aa_imode_name(umode_t mode);
 
 #endif /* __APPARMOR_H */
