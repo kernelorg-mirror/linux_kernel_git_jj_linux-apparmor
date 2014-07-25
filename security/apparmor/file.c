@@ -515,10 +515,10 @@ int aa_file_perm(int op, struct aa_label *label, struct file *file,
 	 * Note: the test for !unconfined(flabel) is to handle file
 	 *       delegation from unconfined tasks
 	 */
-	if (unconfined(label) || unconfined(flabel))
-		goto done;
 	denied = request & ~fcxt->allow;
-	if (!denied && aa_label_is_subset(flabel, label))
+	if (unconfined(label) ||
+	    (unconfined(flabel) && !(request & ~aa_map_file_to_perms(file))) ||
+	    (!denied && aa_label_is_subset(flabel, label)))
 		goto done;
 
 	/* TODO: fix path lookup flags */
