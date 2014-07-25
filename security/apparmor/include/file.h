@@ -21,6 +21,7 @@
 struct aa_profile;
 struct path;
 
+#define mask_mode_t(X) (X & (MAY_EXEC | MAY_WRITE | MAY_READ | MAY_APPEND))
 /*
  * We use MAY_EXEC, MAY_WRITE, MAY_READ, MAY_APPEND and the following flags
  * for profile permissions
