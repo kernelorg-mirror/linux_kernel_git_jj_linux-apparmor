@@ -802,7 +802,7 @@ static int apparmor_unix_stream_connect(struct sock *sock, struct sock *other,
 	int error;
 
 	label = __aa_get_current_label();
-	error = unix_fs_perm(OP_CONNECT, sock_cxt->label, other,
+	error = unix_fs_perm(OP_CONNECT, label, other,
 			     MAY_READ | MAY_WRITE);
 	__aa_put_current_label(label);
 
@@ -838,8 +838,7 @@ static int apparmor_unix_may_send(struct socket *sock, struct socket *other)
 	/* TODO update label instead */
 	AA_BUG(!aa_label_is_subset(cxt->label, label));
 
-	error = xcheck(unix_fs_perm(OP_SENDMSG, cxt->label, other->sk,
-				    MAY_WRITE),
+	error = xcheck(unix_fs_perm(OP_SENDMSG, label, other->sk, MAY_WRITE),
 		       unix_fs_perm(OP_SENDMSG, other_cxt->label, sock->sk,
 				    MAY_READ));
 	__aa_put_current_label(label);

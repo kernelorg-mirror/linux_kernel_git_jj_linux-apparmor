@@ -142,8 +142,6 @@ int aa_net_perm(int op, struct aa_label *label, u16 family, int type,
 		return 0;
 
 
-	AA_BUG(!label);
-
 	return fn_for_each_confined(label, profile,
 			af_mask_perm(op, profile, family, type, protocol, sk));
 }
@@ -160,10 +158,10 @@ int aa_revalidate_sk(int op, struct sock *sk)
 	struct aa_label *label;
 	int error = 0;
 
-	AA_BUG(!sk);
-
-	label = ((struct aa_sk_cxt *) SK_CXT(sk))->label;
-	AA_BUG(!label);
+	if (in_interrupt())
+		label = ((struct aa_sk_cxt *) SK_CXT(sk))->label;
+	else
+		label = __aa_current_label();
 
 	if (!unconfined(label))
 		error = aa_net_perm(op, label, sk->sk_family, sk->sk_type,
