@@ -109,6 +109,19 @@ static bool profile_in_label(struct aa_profile *profile, struct aa_label *l)
 	return false;
 }
 
+static bool label_profiles_unconfined(struct aa_label *label)
+{
+	struct aa_profile *profile;
+	int i;
+
+	label_for_each(i, label, profile) {
+		if (!profile_unconfined(profile))
+			return false;
+	}
+
+	return true;
+}
+
 void aa_label_destroy(struct aa_label *label)
 {
 	AA_BUG(!label);
@@ -533,6 +546,380 @@ struct aa_label *aa_label_insert(struct aa_labelset *ls, struct aa_label *l)
 	write_lock_irqsave(&ls->lock, flags);
 	label = __aa_label_insert(ls, l);
 	write_unlock_irqrestore(&ls->lock, flags);
+
+	return label;
+}
+
+/**
+ * aa_label_next_in_merge - find the next profile when merging @a and @b
+ * @a: label to merge
+ * @i: index into @a's profiles. Should be set to 0 for first call
+ * @b: label to merge
+ * @j: index into @b's profiles. Should be set to 0 for first call
+ *
+ * Returns: next profile
+ *     else null if no more profiles
+ */
+struct aa_profile *aa_label_next_in_merge(struct aa_label *a, int *i,
+					  struct aa_label *b, int *j)
+{
+	AA_BUG(!a);
+	AA_BUG(!b);
+	AA_BUG(!i);
+	AA_BUG(*i < 0);
+	AA_BUG(*i > a->size);
+	AA_BUG(!j);
+	AA_BUG(*j < 0);
+	AA_BUG(*j > b->size);
+
+	if (*i < a->size) {
+		if (*j < b->size) {
+			int res = profile_cmp(a->ent[*i], b->ent[*j]);
+			if (res > 0)
+				return b->ent[(*j)++];
+			if (res == 0)
+				(*j)++;
+		}
+
+		return a->ent[(*i)++];
+	}
+
+	if (*j < b->size)
+		return b->ent[(*j)++];
+
+	return NULL;
+}
+
+/**
+ * label_merge_cmp - cmp of @a merging with @b against @z for set ordering
+ * @a: label to merge then compare (NOT NULL)
+ * @b: label to merge then compare (NOT NULL)
+ * @z: label to compare merge against (NOT NULL)
+ *
+ * Assumes: using the most recent versions of @a, @b, and @z
+ *
+ * Returns: <0  if a < b
+ *          ==0 if a == b
+ *          >0  if a > b
+ */
+static int label_merge_cmp(struct aa_label *a, struct aa_label *b,
+                           struct aa_label *z)
+{
+	int i, j, k;
+	struct aa_profile *p = NULL;
+
+	AA_BUG(!a);
+	AA_BUG(!b);
+	AA_BUG(!z);
+
+	for (i = j = k = 0;
+	     k < z->size && (p = aa_label_next_in_merge(a, &i, b, &j));
+	     k++) {
+		int res = profile_cmp(p, z->ent[k]);
+
+		if (res != 0)
+			return res;
+	}
+
+	if (p)
+		return 1;
+	else if (k < z->size)
+		return -1;
+	return 0;
+}
+
+/**
+ * label_merge_len - find the length of the merge of @a and @b
+ * @a: label to merge (NOT NULL)
+ * @b: label to merge (NOT NULL)
+ *
+ * Assumes: using newest versions of labels @a and @b
+ *
+ * Returns: length of a label vector for merge of @a and @b
+ */
+static int label_merge_len(struct aa_label *a, struct aa_label *b)
+{
+	int len = a->size + b->size;
+	int i, j;
+
+	AA_BUG(!a);
+	AA_BUG(!b);
+
+	/* find entries in common and remove from count */
+	for (i = j = 0; i < a->size && j < b->size; ) {
+		int res = profile_cmp(a->ent[i], b->ent[j]);
+		if (res == 0) {
+			len--;
+			i++;
+			j++;
+		} else if (res < 0)
+			i++;
+		else
+			j++;
+	}
+
+	return len;
+}
+
+/**
+ * aa_sort_and_merge_profiles - canonical sort and merge a list of profiles
+ * @n: number of refcounted profiles in the list (@n > 0)
+ * @ps: list of profiles to sort and merge
+ *
+ * Returns: the number of duplicates eliminated == references put
+ */
+static int aa_sort_and_merge_profiles(int n, struct aa_profile **ps)
+{
+	int i, dups = 0;
+
+	AA_BUG(n < 1);
+	AA_BUG(!ps);
+
+	/* label lists are usually small so just use insertion sort */
+	for (i = 1; i < n; i++) {
+		struct aa_profile *tmp = ps[i];
+		int pos, j;
+
+		for (pos = i - 1 - dups; pos >= 0; pos--) {
+			int res = profile_cmp(ps[pos], tmp);
+			if (res == 0) {
+				aa_put_profile(tmp);
+				dups++;
+				goto continue_outer;
+			} else if (res < 0)
+				break;
+		}
+		pos++;
+
+		for (j = i - dups; j > pos; j--)
+			ps[j] = ps[j - 1];
+		ps[pos] = tmp;
+	continue_outer:
+		; /* sigh empty statement required after the label */
+	}
+
+	return dups;
+}
+
+/**
+ * __label_merge - create a new label by merging @a and @b
+ * @l: preallocated label to merge into (NOT NULL)
+ * @a: label to merge with @b  (NOT NULL)
+ * @b: label to merge with @a  (NOT NULL)
+ *
+ * Returns: ref counted label either l if merge is unique
+ *          a if b is a subset of a
+ *          b if a is a subset of b
+ *
+ * NOTE: will not use l if the merge results in l == a or b
+ *
+ *       Must be used within labelset write lock to avoid racing with
+ *       label invalidation.
+ */
+static struct aa_label *__label_merge(struct aa_label *l, struct aa_label *a,
+				      struct aa_label *b)
+{
+	struct aa_profile *next;
+	int i, j, k = 0, invcount = 0;
+
+	AA_BUG(!a);
+	AA_BUG(a->size < 0);
+	AA_BUG(!b);
+	AA_BUG(b->size < 0);
+	AA_BUG(!l);
+	AA_BUG(l->size != a->size + b->size);
+
+	if (a == b)
+		return aa_get_label(a);
+
+	label_for_each_in_merge(i, j, a, b, next) {
+		if (PROFILE_INVALID(next)) {
+			l->ent[k] = aa_get_newest_profile(next);
+			if (next->label.replacedby !=
+			    l->ent[k]->label.replacedby)
+				invcount++;
+			k++;
+		} else
+			l->ent[k++] = aa_get_profile(next);
+	}
+	/* set to actual size which is <= allocated len */
+	l->size = k;
+
+	if (invcount) {
+		i = aa_sort_and_merge_profiles(l->size, &l->ent[0]);
+		l->size -= i;
+		if (label_profiles_unconfined(l))
+			l->flags |= FLAG_UNCONFINED;
+	} else {
+		/* merge is same as at least one of the labels */
+		if (k == a->size)
+			return aa_get_label(a);
+		else if (k == b->size)
+			return aa_get_label(b);
+
+		l->flags |= a->flags & b->flags & FLAG_UNCONFINED;
+	}
+
+	return aa_get_label(l);
+}
+
+/**
+ * labelset_of_merge - find into which labelset a merged label should be inserted
+ * @a: label to merge and insert
+ * @b: label to merge and insert
+ *
+ * Returns: labelset that the merged label should be inserted into
+ */
+static struct aa_labelset *labelset_of_merge(struct aa_label *a, struct aa_label *b)
+{
+	struct aa_namespace *nsa = labels_ns(a);
+	struct aa_namespace *nsb = labels_ns(b);
+
+	if (ns_cmp(nsa, nsb) <= 0)
+		return &nsa->labels;
+	return &nsb->labels;
+}
+
+/**
+ * __aa_label_find_merge - find label that is equiv to merge of @a and @b
+ * @ls: set of labels to search (NOT NULL)
+ * @a: label to merge with @b  (NOT NULL)
+ * @b: label to merge with @a  (NOT NULL)
+ *
+ * Requires: read_lock held
+ *
+ * Returns: unref counted label that is equiv to merge of @a and @b
+ *     else NULL if merge of @a and @b is not in set
+ */
+static struct aa_label *__aa_label_find_merge(struct aa_labelset *ls,
+					      struct aa_label *a,
+					      struct aa_label *b)
+{
+	struct rb_node *node;
+
+	AA_BUG(!ls);
+	AA_BUG(!a);
+	AA_BUG(!b);
+
+	if (a == b)
+		return __aa_label_find(ls, a);
+
+	node  = ls->root.rb_node;
+	while (node) {
+		struct aa_label *this = container_of(node, struct aa_label,
+						     node);
+		int result = label_merge_cmp(a, b, this);
+
+		if (result < 0)
+			node = node->rb_left;
+		else if (result > 0)
+			node = node->rb_right;
+		else
+			return this;
+	}
+
+	return NULL;
+}
+
+
+/**
+ * __aa_label_find_merge - find label that is equiv to merge of @a and @b
+ * @a: label to merge with @b  (NOT NULL)
+ * @b: label to merge with @a  (NOT NULL)
+ *
+ * Requires: labels be fully constructed with a valid ns
+ *
+ * Returns: ref counted label that is equiv to merge of @a and @b
+ *     else NULL if merge of @a and @b is not in set
+ */
+struct aa_label *aa_label_find_merge(struct aa_label *a, struct aa_label *b)
+{
+	struct aa_labelset *ls;
+	struct aa_label *label, *ar = NULL, *br = NULL;
+	unsigned long flags;
+
+	AA_BUG(!a);
+	AA_BUG(!b);
+
+	ls = labelset_of_merge(a, b);
+	read_lock_irqsave(&ls->lock, flags);
+	if (label_invalid(a))
+		a = ar = aa_get_newest_label(a);
+	if (label_invalid(b))
+		b = br = aa_get_newest_label(b);
+	label = aa_get_label(__aa_label_find_merge(ls, a, b));
+	read_unlock_irqrestore(&ls->lock, flags);
+	aa_put_label(ar);
+	aa_put_label(br);
+	labelsetstats_inc(ls, msread);
+
+	return label;
+}
+
+/**
+ * aa_label_merge - attempt to insert new merged label of @a and @b
+ * @ls: set of labels to insert label into (NOT NULL)
+ * @a: label to merge with @b  (NOT NULL)
+ * @b: label to merge with @a  (NOT NULL)
+ * @gfp: memory allocation type
+ *
+ * Requires: caller to hold valid refs on @a and @b
+ *           labels be fully constructed with a valid ns
+ *
+ * Returns: ref counted new label if successful in inserting merge of a & b
+ *     else ref counted equivalent label that is already in the set.
+ *     else NULL if could not create label (-ENOMEM)
+ */
+struct aa_label *aa_label_merge(struct aa_label *a, struct aa_label *b,
+				gfp_t gfp)
+{
+	struct aa_label *label = NULL;
+	struct aa_labelset *ls;
+	unsigned long flags;
+
+	AA_BUG(!a);
+	AA_BUG(!b);
+
+	if (a == b)
+		return aa_get_label(a);
+
+	ls = labelset_of_merge(a, b);
+
+	/* TODO: enable when read side is lockless
+	 * check if label exists before taking locks
+	if (!label_invalid(a) && !label_invalid(b))
+		label = aa_label_find_merge(a, b);
+	*/
+
+	if (!label) {
+		struct aa_label *new, *l, *ar = NULL, *br = NULL;
+
+		/* could use label_merge_len(a, b), but requires double
+		 * comparison for small savings
+		 */
+		new = aa_label_alloc(a->size + b->size, gfp);
+		if (!new)
+			return NULL;
+
+		write_lock_irqsave(&ls->lock, flags);
+		if (label_invalid(a))
+			a = ar = aa_get_newest_label(a);
+		if (label_invalid(b))
+			b = br = aa_get_newest_label(b);
+		l = __label_merge(new, a, b);
+		if (l != new) {
+			/* new may not be fully setup so no put_label */
+			aa_label_free(new);
+			new = NULL;
+		}
+		if (!(l->flags & FLAG_IN_TREE))
+			label = __aa_label_insert(ls, l);
+		write_unlock_irqrestore(&ls->lock, flags);
+		aa_put_label(new);
+		aa_put_label(l);
+		aa_put_label(ar);
+		aa_put_label(br);
+	}
 
 	return label;
 }
@@ -968,45 +1355,6 @@ static int label_count_str_entries(const char *str)
 }
 
 /**
- * aa_sort_and_merge_profiles - canonical sort and merge a list of profiles
- * @n: number of refcounted profiles in the list (@n > 0)
- * @ps: list of profiles to sort and merge
- *
- * Returns: the number of duplicates eliminated == references put
- */
-static int aa_sort_and_merge_profiles(int n, struct aa_profile **ps)
-{
-	int i, dups = 0;
-
-	AA_BUG(n < 1);
-	AA_BUG(!ps);
-
-	/* label lists are usually small so just use insertion sort */
-	for (i = 1; i < n; i++) {
-		struct aa_profile *tmp = ps[i];
-		int pos, j;
-
-		for (pos = i - 1 - dups; pos >= 0; pos--) {
-			int res = profile_cmp(ps[pos], tmp);
-			if (res == 0) {
-				aa_put_profile(tmp);
-				dups++;
-				continue;
-			} else if (res < 0)
-				break;
-		}
-		pos++;
-
-		for (j = i - dups; j > pos; j--)
-			ps[j] = ps[j - 1];
-
-		ps[pos] = tmp;
-	}
-
-	return dups;
-}
-
-/**
  * aa_label_parse - parse, validate and convert a text string to a label
  * @base: base namespace to use for lookups (NOT NULL)
  * @str: null terminated text string (NOT NULL)
@@ -1017,9 +1365,8 @@ static int aa_sort_and_merge_profiles(int n, struct aa_profile **ps)
  */
 struct aa_label *aa_label_parse(struct aa_namespace *base, char *str, gfp_t gfp)
 {
-	struct aa_profile *profile;
 	struct aa_label *l, *label;
-	int i, len, unconf;
+	int i, len;
 	char *split;
 
 	AA_BUG(!base);
@@ -1045,15 +1392,7 @@ struct aa_label *aa_label_parse(struct aa_namespace *base, char *str, gfp_t gfp)
 	i = aa_sort_and_merge_profiles(len, &label->ent[0]);
 	label->size -= i;
 
-	unconf = 1;
-	label_for_each(i, label, profile) {
-		if (!profile_unconfined(profile)) {
-			unconf = 0;
-			break;
-		}
-	}
-
-	if (unconf)
+	if (label_profiles_unconfined(label))
 		label->flags = FLAG_UNCONFINED;
 
 	l = aa_label_find(labels_set(label), label);
