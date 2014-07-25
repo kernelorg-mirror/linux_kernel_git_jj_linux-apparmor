@@ -341,7 +341,8 @@ int aa_remount(struct aa_label *label, struct path *path, unsigned long flags,
 	struct aa_profile *profile;
 	const char *name, *info = NULL;
 	char *buffer = NULL;
-	int binary, error;
+	bool binary;
+	int error;
 
 	binary = path->dentry->d_sb->s_type->fs_flags & FS_BINARY_MOUNTDATA;
 
@@ -398,7 +399,7 @@ int aa_bind_mount(struct aa_label *label, struct path *path,
 
 	error = fn_for_each_confined(label, profile,
 			match_mnt(profile, name, old_name, NULL, flags, NULL,
-				  0));
+				  false));
 
 out:
 	put_buffers(buffer, old_buffer);
@@ -438,7 +439,8 @@ int aa_mount_change_type(struct aa_label *label, struct path *path,
 	}
 
 	error = fn_for_each_confined(label, profile,
-			match_mnt(profile, name, NULL, NULL, flags, NULL, 0));
+			match_mnt(profile, name, NULL, NULL, flags, NULL,
+				  false));
 
 out:
 	put_buffers(buffer);
@@ -477,7 +479,7 @@ int aa_move_mount(struct aa_label *label, struct path *path,
 
 	error = fn_for_each_confined(label, profile,
 			match_mnt(profile, name, old_name, NULL, MS_MOVE, NULL,
-				  0));
+				  false));
 
 out:
 	put_buffers(buffer, old_buffer);
@@ -499,7 +501,7 @@ int aa_new_mount(struct aa_label *label, const char *orig_dev_name,
 	struct aa_profile *profile;
 	char *buffer = NULL, *dev_buffer = NULL;
 	const char *name = NULL, *dev_name = NULL, *info = NULL;
-	int binary = 1;
+	bool binary = true;
 	int error;
 
 	dev_name = orig_dev_name;
