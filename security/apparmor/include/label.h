@@ -146,7 +146,7 @@ struct aa_label {
 	long flags;
 	u32 sid;
 	int size;
-	struct aa_profile *ent[1];
+	struct aa_profile *ent[2];
 };
 
 #define label_isprofile(X) ((X)->flags & FLAG_PROFILE)
@@ -166,14 +166,12 @@ int aa_label_next_confined(struct aa_label *l, int i);
 
 /* for each profile in a label */
 #define label_for_each(I, L, P)				\
-	for ((I) = 0;					\
-	     (I) < (L)->size && ((P) = (L)->ent[(I)]);	\
-	     ++(I))
+	for ((I) = 0; ((P) = (L)->ent[(I)]); ++(I))
 
 /* for each profile that is enforcing confinement in a label */
 #define label_for_each_confined(I, L, P)		\
 	for ((I) = aa_label_next_confined((L), 0);	\
-	     (I) < (L)->size && ((P) = (L)->ent[(I)]);	\
+	     ((P) = (L)->ent[(I)]);			\
 	     (I) = aa_label_next_confined((L), I + 1))
 
 #define label_for_each_in_merge(I, J, A, B, P)			  \

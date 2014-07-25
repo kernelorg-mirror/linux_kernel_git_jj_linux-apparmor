@@ -192,7 +192,8 @@ bool aa_label_init(struct aa_label *label, int size)
 	if (label->sid == AA_SID_INVALID)
 		return false;
 
-	label->size = size;
+	label->size = size;			/* doesn't include null */
+	label->ent[size] = NULL;		/* null terminate */
 	kref_init(&label->count);
 	RB_CLEAR_NODE(&label->node);
 
@@ -213,6 +214,7 @@ struct aa_label *aa_label_alloc(int size, gfp_t gfp)
 
 	AA_BUG(size < 1);
 
+	/* vector: size - 2 (size of array in label struct) + 1 for null */
 	label = kzalloc(sizeof(*label) + sizeof(struct aa_label *) * (size - 1),
 			gfp);
 	AA_DEBUG("%s (%p)\n", __func__, label);
@@ -744,6 +746,7 @@ static struct aa_label *__label_merge(struct aa_label *l, struct aa_label *a,
 	}
 	/* set to actual size which is <= allocated len */
 	l->size = k;
+	l->ent[k] = NULL;
 
 	if (invcount) {
 		i = aa_sort_and_merge_profiles(l->size, &l->ent[0]);
@@ -1391,6 +1394,7 @@ struct aa_label *aa_label_parse(struct aa_namespace *base, char *str, gfp_t gfp)
 
 	i = aa_sort_and_merge_profiles(len, &label->ent[0]);
 	label->size -= i;
+	label->ent[label->size] = NULL;
 
 	if (label_profiles_unconfined(label))
 		label->flags = FLAG_UNCONFINED;
