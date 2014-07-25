@@ -70,6 +70,7 @@ enum aa_ops {
 	OP_FLOCK,
 	OP_FMMAP,
 	OP_FMPROT,
+	OP_INHERIT,
 
 	OP_CREATE,
 	OP_POST_CREATE,

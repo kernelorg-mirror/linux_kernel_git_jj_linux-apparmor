@@ -444,10 +444,6 @@ static int common_file_perm(int op, struct file *file, u32 mask)
 	struct aa_label *label;
 	int error = 0;
 
-	if (!file->f_path.mnt ||
-	    !mediated_filesystem(file_inode(file)))
-		return 0;
-
 	label = __aa_get_current_label();
 	error = aa_file_perm(op, label, file, mask);
 	__aa_put_current_label(label);
@@ -601,6 +597,37 @@ fail:
 	aad(&sa)->error = -EINVAL;
 	aa_audit_msg(AUDIT_APPARMOR_DENIED, &sa, NULL);
 	return -EINVAL;
+}
+
+/**
+ * apparmor_bprm_committing_creds - do task cleanup on committing new creds
+ * @bprm: binprm for the exec  (NOT NULL)
+ */
+void apparmor_bprm_committing_creds(struct linux_binprm *bprm)
+{
+	struct aa_label *label = __aa_current_label();
+	struct aa_task_cxt *new_cxt = cred_cxt(bprm->cred);
+
+	/* bail out if unconfined or not changing profile */
+	if ((new_cxt->label == label) || (unconfined(new_cxt->label)))
+		return;
+
+	aa_inherit_files(bprm->cred, current->files);
+
+	current->pdeath_signal = 0;
+
+	/* reset soft limits and set hard limits for the new label */
+	__aa_transition_rlimits(label, new_cxt->label);
+}
+
+/**
+ * apparmor_bprm_commited_cred - do cleanup after new creds committed
+ * @bprm: binprm for the exec  (NOT NULL)
+ */
+void apparmor_bprm_committed_creds(struct linux_binprm *bprm)
+{
+	/* TODO: cleanup signals - ipc mediation */
+	return;
 }
 
 static int apparmor_task_setrlimit(struct task_struct *task,

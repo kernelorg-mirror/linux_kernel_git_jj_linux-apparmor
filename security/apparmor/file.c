@@ -12,8 +12,13 @@
  * License.
  */
 
+#include <linux/tty.h>
+#include <linux/fdtable.h>
+#include <linux/file.h>
+
 #include "include/apparmor.h"
 #include "include/audit.h"
+#include "include/context.h"
 #include "include/file.h"
 #include "include/match.h"
 #include "include/path.h"
@@ -474,6 +479,63 @@ out:
 	return error;
 }
 
+int __file_path_perm(int op, struct aa_label *label, struct aa_label *flabel,
+		     struct file *file, u32 request, u32 denied)
+{
+	struct aa_profile *profile;
+	struct file_perms perms = {};
+	struct path_cond cond = {
+		.uid = file_inode(file)->i_uid,
+		.mode = file_inode(file)->i_mode
+	};
+	const char *name;
+	char *buffer;
+	int i, j, flags, error;
+
+	/* TODO: fix path lookup flags */
+	flags = PATH_DELEGATE_DELETED | labels_profile(label)->path_flags |
+		(S_ISDIR(cond.mode) ? PATH_IS_DIR : 0);
+	__get_buffers(buffer);
+	error = path_name(op, label, &file->f_path, flags, buffer, &name, &cond,
+			  request, true);
+	if (error) {
+		if (error == 1)
+			/* Access to open files that are deleted are
+			 * given a pass (implicit delegation)
+			 */
+			/* TODO not needed when full perms cached ???? */
+			error = 0;
+		goto out;
+	}
+
+	if (denied) {
+		/* expanding cached perms need to check both label and flabel */
+		/* TODO: cache full perms so this only happens because of
+		 * conditionals */
+		label_for_each_in_merge(i, j, flabel, label, profile) {
+			int e = path_perm(op, profile, name, request, &cond,
+					  &perms);
+			if (e)
+				error = e;
+		}
+	} else {
+		/* are we revalidating just because the label was out of date?*/
+		if (flabel == label)
+			goto out;
+
+		label_for_each_not_in_set(i, j, flabel, label, profile) {
+			int e = path_perm(op, profile, name, request, &cond,
+					  &perms);
+			if (e)
+				error = e;
+		}
+	}
+
+out:
+	__put_buffers(buffer);
+	return error;
+}
+
 /**
  * aa_file_perm - do permission revalidation check & audit for @file
  * @op: operation being checked
@@ -487,20 +549,16 @@ int aa_file_perm(int op, struct aa_label *label, struct file *file,
 		 u32 request)
 {
 	struct aa_file_cxt *fcxt;
-	struct aa_profile *profile;
 	struct aa_label *flabel, *l, *old;
-	struct file_perms perms = {};
-	struct path_cond cond = {
-		.uid = file_inode(file)->i_uid,
-		.mode = file_inode(file)->i_mode
-	};
-	const char *name;
-	char *buffer;
 	u32 denied;
-	int i, j, flags, error = 0;
+	int error = 0;
 
 	AA_BUG(!label);
 	AA_BUG(!file);
+
+	if (!file->f_path.mnt ||
+	    !mediated_filesystem(file_inode(file)))
+		return 0;
 
 	fcxt = file_cxt(file);
 
@@ -521,75 +579,94 @@ int aa_file_perm(int op, struct aa_label *label, struct file *file,
 	    (!denied && aa_label_is_subset(flabel, label)))
 		goto done;
 
-	/* TODO: fix path lookup flags */
-	flags = PATH_DELEGATE_DELETED | labels_profile(label)->path_flags |
-		(S_ISDIR(cond.mode) ? PATH_IS_DIR : 0);
-	__get_buffers(buffer);
-	error = path_name(op, label, &file->f_path, flags, buffer, &name, &cond,
-			  request, true);
-	if (error) {
-		if (error == 1) {
-			/* Access to open files that are deleted are
-			 * given a pass (implicit delegation)
-			 */
-			/* TODO not needed when full perms cached ???? */
-			perms.allow = request;
-			spin_lock(&fcxt->lock);
-			goto update_perm;
-		}
-		goto out;
-	}
+	/* TODO: label cross check */
 
-	if (denied) {
-		/* expanding cached perms need to check both label and flabel */
-		/* TODO: cache full perms so this only happens because of
-		 * conditionals */
-		label_for_each_in_merge(i, j, flabel, label, profile) {
-			int e = path_perm(op, profile, name, request, &cond,
-					  &perms);
-			if (e)
-				error = e;
-		}
-	} else {
-		/* are we revalidating just because the label was out of date?*/
-		if (flabel == label)
-			goto update;
-
-		label_for_each_not_in_set(i, j, flabel, label, profile) {
-			int e = path_perm(op, profile, name, request, &cond,
-					  &perms);
-			if (e)
-				error = e;
-		}
-	}
+	error = __file_path_perm(op, label, flabel, file, request, denied);
 	if (error)
-		goto out;
+		goto done;
 
-update:
 	/* update caching of label on file_cxt */
 	spin_lock(&fcxt->lock);
 	old = rcu_dereference_protected(fcxt->label,
 					spin_is_locked(&fcxt->lock));
 	l = aa_label_merge(old, label, GFP_ATOMIC);
-	if (!l)
-		goto unlock;
-	if (l != old) {
-		rcu_assign_pointer(fcxt->label, l);
-		aa_put_label(old);
-	} else
-		aa_put_label(l);
-
-update_perm:
-	fcxt->allow |= request;
-
-unlock:
+	if (l) {
+		if (l != old) {
+			rcu_assign_pointer(fcxt->label, l);
+			aa_put_label(old);
+		} else
+			aa_put_label(l);
+		fcxt->allow |= request;
+	}
 	spin_unlock(&fcxt->lock);
-
-out:
-	__put_buffers(buffer);
 
 done:
 	rcu_read_unlock();
 
 	return error;
+}
+
+static void revalidate_tty(struct aa_label *label)
+{
+	struct tty_struct *tty;
+	int drop_tty = 0;
+
+	tty = get_current_tty();
+	if (!tty)
+		return;
+
+	spin_lock(&tty_files_lock);
+	if (!list_empty(&tty->tty_files)) {
+		struct tty_file_private *file_priv;
+		struct file *file;
+		/* Revalidate access to controlling tty.
+		   ???? */
+		file_priv = list_first_entry(&tty->tty_files,
+					     struct tty_file_private, list);
+		file = file_priv->file;
+
+		if (aa_file_perm(OP_INHERIT, label, file, MAY_READ | MAY_WRITE))
+			drop_tty = 1;
+	}
+	spin_unlock(&tty_files_lock);
+	tty_kref_put(tty);
+
+	if (drop_tty)
+		no_tty();
+}
+
+static int match_file(const void *p, struct file *file, unsigned fd)
+{
+	struct aa_label *label = (struct aa_label *)p;
+	if (aa_file_perm(OP_INHERIT, label, file, aa_map_file_to_perms(file)))
+		return fd + 1;
+	return 0;
+}
+
+
+/* based on selinux's flush_unauthorized_files */
+void aa_inherit_files(const struct cred *cred, struct files_struct *files)
+{
+	struct aa_task_cxt *cxt = cred_cxt(cred);
+	struct aa_label *label = cxt->label;
+	struct file *devnull = NULL;
+	unsigned n;
+
+	revalidate_tty(label);
+
+	/* Revalidate access to inherited open files. */
+	n = iterate_fd(files, 0, match_file, label);
+	if (!n) /* none found? */
+		return;
+
+	devnull = dentry_open(&aa_null, O_RDWR, cred);
+	if (IS_ERR(devnull))
+		devnull = NULL;
+	/* replace all the matching ones with this */
+	do {
+printk("apparmor: replacing %d\n", n -1);
+		replace_fd(n - 1, devnull, 0);
+	} while ((n = iterate_fd(files, n, match_file, label)) != 0);
+	if (devnull)
+		fput(devnull);
 }

@@ -25,7 +25,6 @@
 #define cred_cxt(X) (X)->security
 #define current_cxt() cred_cxt(current_cred())
 
-
 /**
  * struct aa_task_cxt - primary label for confined tasks
  * @label: the current label   (NOT NULL)

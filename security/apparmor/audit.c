@@ -43,6 +43,7 @@ const char *const op_table[] = {
 	"file_lock",
 	"file_mmap",
 	"file_mprotect",
+	"file_inherit",
 
 	"create",
 	"post_create",

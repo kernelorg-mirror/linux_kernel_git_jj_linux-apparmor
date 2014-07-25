@@ -18,9 +18,11 @@
 #include <linux/module.h>
 #include <linux/seq_file.h>
 #include <linux/uaccess.h>
+#include <linux/mount.h>
 #include <linux/namei.h>
 #include <linux/capability.h>
 #include <linux/rcupdate.h>
+#include <uapi/linux/major.h>
 
 #include "include/apparmor.h"
 #include "include/apparmorfs.h"
@@ -1070,6 +1072,54 @@ void __init aa_destroy_aafs(void)
 	aafs_remove_dir(&aa_fs_entry);
 }
 
+
+#define NULL_FILE_NAME ".null"
+struct path aa_null;
+
+static int aa_mk_null_file(struct dentry *parent)
+{
+	struct vfsmount *mount = NULL;
+	struct dentry *dentry;
+	struct inode *inode;
+	int count = 0;
+	int error = simple_pin_fs(parent->d_sb->s_type, &mount, &count);
+
+	if (error) {
+printk("apparmor failed to pin for .null\n");
+		return error;
+	}
+	mutex_lock(&parent->d_inode->i_mutex);
+	dentry = lookup_one_len(NULL_FILE_NAME, parent, strlen(NULL_FILE_NAME));
+	if (IS_ERR(dentry)) {
+		error = PTR_ERR(dentry);
+		goto out;
+	}
+	inode = new_inode(parent->d_inode->i_sb);
+	if (!inode) {
+		error = -ENOMEM;
+		goto out1;
+	}
+
+	inode->i_ino = get_next_ino();
+	inode->i_mode = S_IFCHR | S_IRUGO | S_IWUGO;
+	inode->i_atime = inode->i_mtime = inode->i_ctime = CURRENT_TIME;
+	init_special_inode(inode, S_IFCHR | S_IRUGO | S_IWUGO,
+			   MKDEV(MEM_MAJOR, 3));
+	d_instantiate(dentry, inode);
+	aa_null.dentry = dget(dentry);
+	aa_null.mnt = mntget(mount);
+
+printk("apparmor created .null\n");
+	error = 0;
+
+out1:
+	dput(dentry);
+out:
+	mutex_unlock(&parent->d_inode->i_mutex);
+	simple_release_fs(&mount, &count);
+	return error;
+}
+
 /**
  * aa_create_aafs - create the apparmor security filesystem
  *
@@ -1099,11 +1149,13 @@ static int __init aa_create_aafs(void)
 	if (error)
 		goto error;
 
+	error = aa_mk_null_file(aa_fs_entry.dentry);
+	if (error)
+		goto error;
+
 	if (!aa_g_unconfined_init) {
 		/* TODO: add default profile to apparmorfs */
 	}
-
-	/* TODO: add support for apparmorfs_null and apparmorfs_mnt */
 
 	/* Report that AppArmor fs is enabled */
 	aa_info_message("AppArmor Filesystem Enabled");

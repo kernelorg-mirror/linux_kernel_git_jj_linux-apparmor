@@ -553,36 +553,6 @@ int apparmor_bprm_secureexec(struct linux_binprm *bprm)
 	return ret;
 }
 
-/**
- * apparmor_bprm_committing_creds - do task cleanup on committing new creds
- * @bprm: binprm for the exec  (NOT NULL)
- */
-void apparmor_bprm_committing_creds(struct linux_binprm *bprm)
-{
-	struct aa_label *label = __aa_current_label();
-	struct aa_task_cxt *new_cxt = cred_cxt(bprm->cred);
-
-	/* bail out if unconfined or not changing profile */
-	if ((new_cxt->label == label) ||
-	    (unconfined(new_cxt->label)))
-		return;
-
-	current->pdeath_signal = 0;
-
-	/* reset soft limits and set hard limits for the new label */
-	__aa_transition_rlimits(label, new_cxt->label);
-}
-
-/**
- * apparmor_bprm_commited_cred - do cleanup after new creds committed
- * @bprm: binprm for the exec  (NOT NULL)
- */
-void apparmor_bprm_committed_creds(struct linux_binprm *bprm)
-{
-	/* TODO: cleanup signals - ipc mediation */
-	return;
-}
-
 /*
  * Functions for self directed profile change
  */
