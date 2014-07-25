@@ -114,23 +114,23 @@ static void audit_pre(struct audit_buffer *ab, void *ca)
 
 	if (aa_g_audit_header) {
 		audit_log_format(ab, "apparmor=");
-		audit_log_string(ab, aa_audit_type[sa->aad->type]);
+		audit_log_string(ab, aa_audit_type[aad(sa)->type]);
 	}
 
-	if (sa->aad->op) {
+	if (aad(sa)->op) {
 		audit_log_format(ab, " operation=");
-		audit_log_string(ab, op_table[sa->aad->op]);
+		audit_log_string(ab, op_table[aad(sa)->op]);
 	}
 
-	if (sa->aad->info) {
+	if (aad(sa)->info) {
 		audit_log_format(ab, " info=");
-		audit_log_string(ab, sa->aad->info);
-		if (sa->aad->error)
-			audit_log_format(ab, " error=%d", sa->aad->error);
+		audit_log_string(ab, aad(sa)->info);
+		if (aad(sa)->error)
+			audit_log_format(ab, " error=%d", aad(sa)->error);
 	}
 
-	if (sa->aad->label) {
-		struct aa_label *label = sa->aad->label;
+	if (aad(sa)->label) {
+		struct aa_label *label = aad(sa)->label;
 		if (label_isprofile(label)) {
 			struct aa_profile *profile = labels_profile(label);
 			if (profile->ns != root_ns) {
@@ -146,9 +146,9 @@ static void audit_pre(struct audit_buffer *ab, void *ca)
 		}
 	}
 
-	if (sa->aad->name) {
+	if (aad(sa)->name) {
 		audit_log_format(ab, " name=");
-		audit_log_untrustedstring(ab, sa->aad->name);
+		audit_log_untrustedstring(ab, aad(sa)->name);
 	}
 }
 
@@ -160,7 +160,7 @@ static void audit_pre(struct audit_buffer *ab, void *ca)
 void aa_audit_msg(int type, struct common_audit_data *sa,
 		  void (*cb) (struct audit_buffer *, void *))
 {
-	sa->aad->type = type;
+	aad(sa)->type = type;
 	common_lsm_audit(sa, audit_pre, cb);
 }
 
@@ -183,7 +183,7 @@ int aa_audit(int type, struct aa_profile *profile, gfp_t gfp,
 	BUG_ON(!profile);
 
 	if (type == AUDIT_APPARMOR_AUTO) {
-		if (likely(!sa->aad->error)) {
+		if (likely(!aad(sa)->error)) {
 			if (AUDIT_MODE(profile) != AUDIT_ALL)
 				return 0;
 			type = AUDIT_APPARMOR_AUDIT;
@@ -195,22 +195,22 @@ int aa_audit(int type, struct aa_profile *profile, gfp_t gfp,
 	if (AUDIT_MODE(profile) == AUDIT_QUIET ||
 	    (type == AUDIT_APPARMOR_DENIED &&
 	     AUDIT_MODE(profile) == AUDIT_QUIET))
-		return sa->aad->error;
+	  return aad(sa)->error;
 
 	if (KILL_MODE(profile) && type == AUDIT_APPARMOR_DENIED)
 		type = AUDIT_APPARMOR_KILL;
 
-	sa->aad->label = &profile->label;
+	aad(sa)->label = &profile->label;
 
 	aa_audit_msg(type, sa, cb);
 
-	if (sa->aad->type == AUDIT_APPARMOR_KILL)
+	if (aad(sa)->type == AUDIT_APPARMOR_KILL)
 		(void)send_sig_info(SIGKILL, NULL,
 			sa->type == LSM_AUDIT_DATA_TASK && sa->u.tsk ?
 				    sa->u.tsk : current);
 
-	if (sa->aad->type == AUDIT_APPARMOR_ALLOWED)
-		return complain_error(sa->aad->error);
+	if (aad(sa)->type == AUDIT_APPARMOR_ALLOWED)
+	  return complain_error(aad(sa)->error);
 
-	return sa->aad->error;
+	return aad(sa)->error;
 }

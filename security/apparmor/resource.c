@@ -35,7 +35,7 @@ static void audit_cb(struct audit_buffer *ab, void *va)
 	struct common_audit_data *sa = va;
 
 	audit_log_format(ab, " rlimit=%s value=%lu",
-			 rlim_names[sa->aad->rlim.rlim], sa->aad->rlim.max);
+			 rlim_names[aad(sa)->rlim.rlim], aad(sa)->rlim.max);
 }
 
 /**
@@ -50,15 +50,10 @@ static void audit_cb(struct audit_buffer *ab, void *va)
 static int audit_resource(struct aa_profile *profile, unsigned int resource,
 			  unsigned long value, int error)
 {
-	struct common_audit_data sa;
-	struct apparmor_audit_data aad = {0,};
-
-	sa.type = LSM_AUDIT_DATA_NONE;
-	sa.aad = &aad;
-	aad.op = OP_SETRLIMIT,
-	aad.rlim.rlim = resource;
-	aad.rlim.max = value;
-	aad.error = error;
+	DEFINE_AUDIT_DATA(sa, LSM_AUDIT_DATA_NONE, OP_SETRLIMIT);
+	aad(&sa)->rlim.rlim = resource;
+	aad(&sa)->rlim.max = value;
+	aad(&sa)->error = error;
 	return aa_audit(AUDIT_APPARMOR_AUTO, profile, GFP_KERNEL, &sa,
 			audit_cb);
 }

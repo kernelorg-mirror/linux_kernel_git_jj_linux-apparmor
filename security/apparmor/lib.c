@@ -66,11 +66,8 @@ char *aa_split_fqname(char *fqname, char **ns_name)
 void aa_info_message(const char *str)
 {
 	if (audit_enabled) {
-		struct common_audit_data sa;
-		struct apparmor_audit_data aad = {0,};
-		sa.type = LSM_AUDIT_DATA_NONE;
-		sa.aad = &aad;
-		aad.info = str;
+	  DEFINE_AUDIT_DATA(sa, LSM_AUDIT_DATA_NONE, 0);
+		aad(&sa)->info = str;
 		aa_audit_msg(AUDIT_APPARMOR_STATUS, &sa, NULL);
 	}
 	printk(KERN_INFO "AppArmor: %s\n", str);

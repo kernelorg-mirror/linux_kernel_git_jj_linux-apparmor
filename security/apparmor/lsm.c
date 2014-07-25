@@ -547,8 +547,7 @@ static int apparmor_getprocattr(struct task_struct *task, char *name,
 static int apparmor_setprocattr(struct task_struct *task, char *name,
 				void *value, size_t size)
 {
-	struct common_audit_data sa;
-	struct apparmor_audit_data aad = {0,};
+	DEFINE_AUDIT_DATA(sa, LSM_AUDIT_DATA_NONE, OP_SETPROCATTR);
 	char *command, *args = value;
 	size_t arg_size;
 	int error;
@@ -609,12 +608,9 @@ static int apparmor_setprocattr(struct task_struct *task, char *name,
 	return error;
 
 fail:
-	sa.type = LSM_AUDIT_DATA_NONE;
-	sa.aad = &aad;
-	aad.label = aa_current_label();
-	aad.op = OP_SETPROCATTR;
-	aad.info = name;
-	aad.error = -EINVAL;
+	aad(&sa)->label = aa_current_label();
+	aad(&sa)->info = name;
+	aad(&sa)->error = -EINVAL;
 	aa_audit_msg(AUDIT_APPARMOR_DENIED, &sa, NULL);
 	return -EINVAL;
 }
