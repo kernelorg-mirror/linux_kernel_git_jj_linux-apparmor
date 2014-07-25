@@ -355,3 +355,11 @@ const char *aa_imode_name(umode_t mode)
 	}
 	return "unknown";
 }
+
+const char *aa_peer_name(struct aa_profile *peer)
+{
+	if (profile_unconfined(peer))
+		return "unconfined";
+
+	return peer->base.hname;
+}

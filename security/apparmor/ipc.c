@@ -76,7 +76,7 @@ static int profile_ptrace_perm(struct aa_profile *profile,
                 return 0;
 
 	aad(sa)->target = peer->base.hname;
-	aa_profile_match_label(profile, peer->base.hname, AA_CLASS_PTRACE,
+	aa_profile_match_label(profile, aa_peer_name(peer), AA_CLASS_PTRACE,
 			       &perms);
 	aa_apply_modes_to_perms(profile, &perms);
 	return aa_check_perms(profile, &perms, request, sa, audit_ptrace_cb);
@@ -204,7 +204,7 @@ static int profile_signal_perm(struct aa_profile *profile,
 		return 0;
 
 	aad(sa)->target = peer->base.hname;
-	profile_match_signal(profile, peer->base.hname, aad(sa)->signal,
+	profile_match_signal(profile, aa_peer_name(peer), aad(sa)->signal,
 			     &perms);
 	aa_apply_modes_to_perms(profile, &perms);
 	return aa_check_perms(profile, &perms, request, sa, audit_signal_cb);

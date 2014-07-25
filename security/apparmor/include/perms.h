@@ -152,6 +152,7 @@ int aa_profile_label_perm(struct aa_profile *profile, struct aa_profile *target,
 int aa_check_perms(struct aa_profile *profile, struct aa_perms *perms,
 		   u32 request, struct common_audit_data *sa,
 		   void (*cb) (struct audit_buffer *, void *));
+const char *aa_peer_name(struct aa_profile *peer);
 
 
 static inline int aa_cross_label_perm(struct aa_profile *profile,
