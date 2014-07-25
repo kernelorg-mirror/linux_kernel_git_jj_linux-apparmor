@@ -556,10 +556,6 @@ int aa_file_perm(int op, struct aa_label *label, struct file *file,
 	AA_BUG(!label);
 	AA_BUG(!file);
 
-	if (!file->f_path.mnt ||
-	    !mediated_filesystem(file_inode(file)))
-		return 0;
-
 	fcxt = file_cxt(file);
 
 	rcu_read_lock();
@@ -581,7 +577,19 @@ int aa_file_perm(int op, struct aa_label *label, struct file *file,
 
 	/* TODO: label cross check */
 
-	error = __file_path_perm(op, label, flabel, file, request, denied);
+	if (file->f_path.mnt && mediated_filesystem(file_inode(file)))
+		error = __file_path_perm(op, label, flabel, file, request,
+					 denied);
+	else
+	{
+char *s = aa_imode_name(file_inode(file)->i_mode);
+
+printk("apparmor: revalidation of non-mediated file mnt? %p (%s) label: ", file->f_path.mnt, s);
+aa_label_printk(labels_ns(label), label, false, GFP_ATOMIC);
+printk(" flabel: ");
+aa_label_printk(labels_ns(flabel), flabel, false, GFP_ATOMIC);
+printk("\n");
+	}
 	if (error)
 		goto done;
 
