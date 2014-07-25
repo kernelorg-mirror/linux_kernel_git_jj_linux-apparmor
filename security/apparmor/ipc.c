@@ -94,10 +94,6 @@ static int cross_ptrace_perm(struct aa_profile *tracer,
 			     struct aa_profile *tracee, u32 request,
 			     struct common_audit_data *sa)
 {
-	/* if tracer is unconfined bypass tracee test in cross check */
-	if (profile_unconfined(tracer))
-		return 0;
-
 	if (PROFILE_MEDIATES(tracer, AA_CLASS_PTRACE))
 		return cross_check_profiles(tracer, tracee, profile_ptrace_perm,
 					    x_profile_ptrace_perm, request, sa);
