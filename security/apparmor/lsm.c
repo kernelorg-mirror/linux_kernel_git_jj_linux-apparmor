@@ -172,6 +172,15 @@ static int common_perm(int op, struct path *path, u32 mask,
 	return error;
 }
 
+static int common_perm_cond(int op, struct path *path, u32 mask)
+{
+	struct path_cond cond = { path->dentry->d_inode->i_uid,
+				  path->dentry->d_inode->i_mode
+	};
+
+	return common_perm(op, path, mask, &cond);
+}
+
 /**
  * common_perm_dir_dentry - common permission wrapper when path is dir, dentry
  * @op: operation being checked
@@ -204,11 +213,8 @@ static int common_perm_mnt_dentry(int op, struct vfsmount *mnt,
 				  struct dentry *dentry, u32 mask)
 {
 	struct path path = { mnt, dentry };
-	struct path_cond cond = { dentry->d_inode->i_uid,
-				  dentry->d_inode->i_mode
-	};
 
-	return common_perm(op, &path, mask, &cond);
+	return common_perm_cond(op, &path, mask);
 }
 
 /**
@@ -281,15 +287,10 @@ static int apparmor_path_mknod(struct path *dir, struct dentry *dentry,
 
 static int apparmor_path_truncate(struct path *path)
 {
-	struct path_cond cond = { path->dentry->d_inode->i_uid,
-				  path->dentry->d_inode->i_mode
-	};
-
 	if (!path->mnt || !mediated_filesystem(path->dentry->d_inode))
 		return 0;
 
-	return common_perm(OP_TRUNC, path, MAY_WRITE | AA_MAY_META_WRITE,
-			   &cond);
+	return common_perm_cond(OP_TRUNC, path, MAY_WRITE | AA_MAY_META_WRITE);
 }
 
 static int apparmor_path_symlink(struct path *dir, struct dentry *dentry,
@@ -346,27 +347,18 @@ static int apparmor_path_rename(struct path *old_dir, struct dentry *old_dentry,
 
 static int apparmor_path_chmod(struct path *path, umode_t mode)
 {
-	struct path_cond cond =  { path->dentry->d_inode->i_uid,
-				   path->dentry->d_inode->i_mode
-	};
-
 	if (!mediated_filesystem(path->dentry->d_inode))
 		return 0;
 
-	return common_perm(OP_CHMOD, path, AA_MAY_CHMOD | mask_mode_t(mode),
-			   &cond);
+	return common_perm_cond(OP_CHMOD, path, AA_MAY_CHMOD | mask_mode_t(mode));
 }
 
 static int apparmor_path_chown(struct path *path, kuid_t uid, kgid_t gid)
 {
-	struct path_cond cond =  { path->dentry->d_inode->i_uid,
-				   path->dentry->d_inode->i_mode
-	};
-
 	if (!mediated_filesystem(path->dentry->d_inode))
 		return 0;
 
-	return common_perm(OP_CHOWN, path, AA_MAY_CHOWN, &cond);
+	return common_perm_cond(OP_CHOWN, path, AA_MAY_CHOWN);
 }
 
 static int apparmor_inode_getattr(struct vfsmount *mnt, struct dentry *dentry)
