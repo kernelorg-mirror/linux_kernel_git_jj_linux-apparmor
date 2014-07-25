@@ -166,7 +166,7 @@ static int path_name(int op, struct aa_label *label, struct path *path,
 	if (error) {
 		if (error == -ENOENT && is_deleted(path->dentry) &&
 		    delegate_deleted)
-			return 1;
+			return 0;
 		fn_for_each_confined(label, profile,
 			aa_audit_file(profile, &nullperms, op, request, *name,
 				      NULL, cond->uid, info, error));
@@ -312,7 +312,7 @@ int aa_path_perm(int op, struct aa_label *label, struct path *path,
 	get_buffers(buffer);
 
 	error = path_name(op, label, path, flags, buffer, &name, cond, request,
-			  false);
+			  true);
 	if (error)
 		goto out;
 
