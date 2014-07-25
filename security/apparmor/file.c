@@ -525,6 +525,27 @@ out:
 	return error;
 }
 
+static void update_file_cxt(struct aa_file_cxt *fcxt, struct aa_label *label,
+			    u32 request)
+{
+	struct aa_label *l, *old;
+
+	/* update caching of label on file_cxt */
+	spin_lock(&fcxt->lock);
+	old = rcu_dereference_protected(fcxt->label,
+					spin_is_locked(&fcxt->lock));
+	l = aa_label_merge(old, label, GFP_ATOMIC);
+	if (l) {
+		if (l != old) {
+			rcu_assign_pointer(fcxt->label, l);
+			aa_put_label(old);
+		} else
+			aa_put_label(l);
+		fcxt->allow |= request;
+	}
+	spin_unlock(&fcxt->lock);
+}
+
 /**
  * aa_file_perm - do permission revalidation check & audit for @file
  * @op: operation being checked
@@ -538,7 +559,7 @@ int aa_file_perm(int op, struct aa_label *label, struct file *file,
 		 u32 request)
 {
 	struct aa_file_cxt *fcxt;
-	struct aa_label *flabel, *l, *old;
+	struct aa_label *flabel;
 	u32 denied;
 	int error = 0;
 
@@ -581,21 +602,7 @@ printk("\n");
 	}
 	if (error)
 		goto done;
-
-	/* update caching of label on file_cxt */
-	spin_lock(&fcxt->lock);
-	old = rcu_dereference_protected(fcxt->label,
-					spin_is_locked(&fcxt->lock));
-	l = aa_label_merge(old, label, GFP_ATOMIC);
-	if (l) {
-		if (l != old) {
-			rcu_assign_pointer(fcxt->label, l);
-			aa_put_label(old);
-		} else
-			aa_put_label(l);
-		fcxt->allow |= request;
-	}
-	spin_unlock(&fcxt->lock);
+	update_file_cxt(fcxt, label, request);
 
 done:
 	rcu_read_unlock();
