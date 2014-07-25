@@ -100,20 +100,31 @@ static void apparmor_cred_transfer(struct cred *new, const struct cred *old)
 static int apparmor_ptrace_access_check(struct task_struct *child,
 					unsigned int mode)
 {
+	struct aa_label *tracer, *tracee;
 	int error = cap_ptrace_access_check(child, mode);
 	if (error)
 		return error;
 
-	return aa_ptrace(current, child, mode);
+	tracer = aa_current_label();
+	tracee = aa_get_task_label(child);
+	error = aa_may_ptrace(tracer, tracee,
+		  mode == PTRACE_MODE_READ ? AA_PTRACE_READ : AA_PTRACE_TRACE);
+	aa_put_label(tracee);
+	return error;
 }
 
 static int apparmor_ptrace_traceme(struct task_struct *parent)
 {
+	struct aa_label *tracer, *tracee;
 	int error = cap_ptrace_traceme(parent);
 	if (error)
 		return error;
 
-	return aa_ptrace(parent, current, PTRACE_MODE_ATTACH);
+	tracee = aa_current_label();
+	tracer = aa_get_task_label(parent);
+	error = aa_may_ptrace(tracer, tracee, AA_PTRACE_TRACE);
+	aa_put_label(tracer);
+	return error;
 }
 
 /* Derived from security/commoncap.c:cap_capget */

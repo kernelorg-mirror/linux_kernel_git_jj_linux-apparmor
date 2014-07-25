@@ -935,6 +935,11 @@ static struct aa_fs_entry aa_fs_entry_file[] = {
 	{ }
 };
 
+static struct aa_fs_entry aa_fs_entry_ptrace[] = {
+	AA_FS_FILE_STRING("mask", "read trace"),
+	{ }
+};
+
 static struct aa_fs_entry aa_fs_entry_domain[] = {
 	AA_FS_FILE_BOOLEAN("change_hat",	1),
 	AA_FS_FILE_BOOLEAN("change_hatv",	1),
@@ -956,6 +961,7 @@ static struct aa_fs_entry aa_fs_entry_features[] = {
 	AA_FS_FILE_U64("capability",		VFS_CAP_FLAGS_MASK),
 	AA_FS_DIR("rlimit",			aa_fs_entry_rlimit),
 	AA_FS_DIR("caps",			aa_fs_entry_caps),
+	AA_FS_DIR("ptrace",			aa_fs_entry_ptrace),
 	{ }
 };
 
