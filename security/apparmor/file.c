@@ -279,6 +279,8 @@ static int path_perm(int op, struct aa_profile *profile, const char *name,
 		     struct file_perms *perms)
 {
 	int e = 0;
+	if (profile_unconfined(profile))
+		return 0;
 	aa_str_perms(profile->file.dfa, profile->file.start, name, cond, perms);
 	if (request & ~perms->allow)
 		e = -EACCES;
