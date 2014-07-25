@@ -212,11 +212,13 @@ static ssize_t query_label(char *buf, size_t buf_len,
 			   char *query, size_t query_len)
 {
 	struct aa_profile *profile;
+	struct aa_label *label;
+	struct aa_namespace *ns;
 	char *label_name, *match_str;
 	size_t label_name_len, match_len;
 	u32 allow = 0, audit = 0, quiet = 0;
 	unsigned int state = 0;
-	struct aa_dfa *dfa;
+	int i;
 
 	if (!query_len)
 		return -EINVAL;
@@ -235,34 +237,40 @@ static ssize_t query_label(char *buf, size_t buf_len,
 	match_str = label_name + label_name_len + 1;
 	match_len = query_len - label_name_len - 1;
 
-	profile = aa_lookup_profile(labels_ns(aa_current_label()), label_name);
-	if (!profile)
-		return -ENOENT;
+	ns = labels_ns(aa_current_label());
+	label = aa_label_parse(ns, label_name, GFP_KERNEL);
+	if (IS_ERR(label))
+		return PTR_ERR(label);
 
 	allow = 0xffffffff;
 	audit = quiet = 0x00000000;
-	if (profile->file.dfa && *match_str == AA_CLASS_FILE) {
-		dfa = profile->file.dfa;
-		state = aa_dfa_match_len(dfa, profile->file.start,
-					 match_str + 1, match_len - 1);
-	} else if (profile->policy.dfa) {
-		if (!PROFILE_MEDIATES_SAFE(profile, *match_str))
-			goto out;	/* no change to current perms */
-		dfa = profile->policy.dfa;
-		state = aa_dfa_match_len(dfa, profile->policy.start[0],
-					 match_str, match_len);
+
+	label_for_each_confined(i, label, profile) {
+		struct aa_dfa *dfa;
+		if (profile->file.dfa && *match_str == AA_CLASS_FILE) {
+			dfa = profile->file.dfa;
+			state = aa_dfa_match_len(dfa, profile->file.start,
+						 match_str + 1, match_len - 1);
+		} else if (profile->policy.dfa) {
+			if (!PROFILE_MEDIATES_SAFE(profile, *match_str))
+				continue;	/* no change to current perms */
+			dfa = profile->policy.dfa;
+			state = aa_dfa_match_len(dfa, profile->policy.start[0],
+						 match_str, match_len);
+		}
+		if (state) {
+			if (!COMPLAIN_MODE(profile))
+				allow &= dfa_user_allow(dfa, state);
+			audit |= dfa_user_audit(dfa, state);
+			quiet |= dfa_user_quiet(dfa, state);
+		} else {
+			/* TODO: do we want to accumulate audit/quiet
+			   or just clear as currently doing */
+			allow = audit = quiet = 0;
+			break;
+		}
 	}
-	if (state) {
-		if (!COMPLAIN_MODE(profile))
-			allow &= dfa_user_allow(dfa, state);
-		audit |= dfa_user_audit(dfa, state);
-		quiet |= dfa_user_quiet(dfa, state);
-	} else
-		/* TODO: do we want to accumulate audit/quiet
-		   or just clear as currently doing */
-		allow = audit = quiet = 0;
-out:
-	aa_put_profile(profile);
+	aa_put_label(label);
 
 	return scnprintf(buf, buf_len,
 		      "allow 0x%08x\ndeny 0x%08x\naudit 0x%08x\nquiet 0x%08x\n",
