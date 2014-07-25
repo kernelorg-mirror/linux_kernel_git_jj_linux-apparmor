@@ -58,25 +58,15 @@ static int aa_audit_ptrace(struct aa_profile *profile,
 int aa_may_ptrace(struct aa_label *tracer, struct aa_label *tracee,
 		  unsigned int mode)
 {
-	struct aa_profile *profile;
-	int i, error = 0;
-
 	if (unconfined(tracer) || tracer == tracee)
 		return 0;
 
-	label_for_each_confined(i, tracer, profile) {
-		/* TODO: currently only based on capability, not extended ptrace
-		 *       rules,
-		 *       Test mode for PTRACE_MODE_READ || PTRACE_MODE_ATTACH
-		 */
+	/* TODO: currently only based on capability, not extended ptrace
+	 *       rules,
+	 *       Test mode for PTRACE_MODE_READ || PTRACE_MODE_ATTACH
+	 */
 
-		/* log this capability request */
-		int e = aa_capable(profile, CAP_SYS_PTRACE, 1);
-		if (e)
-			error = e;
-	}
-
-	return error;
+	return aa_capable(tracer, CAP_SYS_PTRACE, 1);
 }
 
 /**
