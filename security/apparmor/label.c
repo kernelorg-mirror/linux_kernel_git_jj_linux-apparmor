@@ -1496,6 +1496,9 @@ struct aa_label *aa_label_parse(struct aa_label *base, char *str, gfp_t gfp)
 	vec[i] = aa_fqlookupn_profile(base, str, strlen(str));
 	if (!vec[i])
 		goto fail;
+	if (len == 1)
+		/* no need to free vec as len < LOCAL_VEC_ENTRIES */
+		return &vec[0]->label;
 
 	i = aa_sort_and_merge_profiles(len, vec);
 	len -= i;
