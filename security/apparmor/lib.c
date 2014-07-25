@@ -288,6 +288,42 @@ void aa_compute_perms(struct aa_dfa *dfa, unsigned int state,
 	perms->quiet = dfa_user_quiet(dfa, state);
 }
 
+/**
+ * aa_perms_accum_raw - accumulate perms with out masking off overlapping perms
+ * @accum - perms struct to accumulate into
+ * @addend - perms struct to add to @accum
+ */
+void aa_perms_accum_raw(struct aa_perms *accum, struct aa_perms *addend)
+{
+	accum->deny |= addend->deny;
+	accum->allow &= addend->allow & ~addend->deny;
+	accum->audit |= addend->audit & addend->allow;
+	accum->quiet &= addend->quiet & ~addend->allow;
+	accum->kill |= addend->kill & ~addend->allow;
+	accum->stop |= addend->stop & ~addend->allow;
+	accum->complain |= addend->complain & ~addend->allow & ~addend->deny;
+	accum->cond |= addend->cond & ~addend->allow & ~addend->deny;
+	accum->hide &= addend->hide & ~addend->allow;
+}
+
+/**
+ * aa_perms_accum - accumulate perms, masking off overlapping perms
+ * @accum - perms struct to accumulate into
+ * @addend - perms struct to add to @accum
+ */
+void aa_perms_accum(struct aa_perms *accum, struct aa_perms *addend)
+{
+	accum->deny |= addend->deny;
+	accum->allow &= addend->allow & ~accum->deny;
+	accum->audit |= addend->audit & accum->allow;
+	accum->quiet &= addend->quiet & ~accum->allow;
+	accum->kill |= addend->kill & ~accum->allow;
+	accum->stop |= addend->stop & ~accum->allow;
+	accum->complain |= addend->complain & ~accum->allow & ~accum->deny;
+	accum->cond |= addend->cond & ~addend->allow & ~addend->deny;
+	accum->hide &= addend->hide & ~accum->allow;
+}
+
 void aa_profile_match_label(struct aa_profile *profile, const char *label,
 			    int type, struct aa_perms *perms)
 {
