@@ -144,6 +144,39 @@ int aa_audit_file(struct aa_profile *profile, struct file_perms *perms,
 }
 
 /**
+ * is_deleted - test if a file has been completely unlinked
+ * @dentry: dentry of file to test for deletion  (NOT NULL)
+ *
+ * Returns: %1 if deleted else %0
+ */
+static inline bool is_deleted(struct dentry *dentry)
+{
+	if (d_unlinked(dentry) && dentry->d_inode->i_nlink == 0)
+		return 1;
+	return 0;
+}
+
+static int path_name(int op, struct aa_label *label, struct path *path,
+		     int flags, char *buffer, const char**name,
+		     struct path_cond *cond, u32 request, bool delegate_deleted)
+{
+	struct aa_profile *profile;
+	const char *info = NULL;
+	int error = aa_path_name(path, flags, buffer, name, &info);
+	if (error) {
+		if (error == -ENOENT && is_deleted(path->dentry) &&
+		    delegate_deleted)
+			return 1;
+		fn_for_each_confined(label, profile,
+			aa_audit_file(profile, &nullperms, op, request, *name,
+				      NULL, cond->uid, info, error));
+		return error;
+	}
+
+	return 0;
+}
+
+/**
  * map_old_perms - map old file perms layout to the new layout
  * @old: permission set in old mapping
  *
@@ -241,19 +274,6 @@ unsigned int aa_str_perms(struct aa_dfa *dfa, unsigned int start,
 	return state;
 }
 
-/**
- * is_deleted - test if a file has been completely unlinked
- * @dentry: dentry of file to test for deletion  (NOT NULL)
- *
- * Returns: %1 if deleted else %0
- */
-static inline bool is_deleted(struct dentry *dentry)
-{
-	if (d_unlinked(dentry) && dentry->d_inode->i_nlink == 0)
-		return 1;
-	return 0;
-}
-
 static int path_perm(int op, struct aa_profile *profile, const char *name,
 		     u32 request, struct path_cond *cond,
 		     struct file_perms *perms)
@@ -264,26 +284,6 @@ static int path_perm(int op, struct aa_profile *profile, const char *name,
 		e = -EACCES;
 	return aa_audit_file(profile, perms, op, request, name, NULL,
 			     cond->uid, NULL, e);
-}
-
-static int path_name(int op, struct aa_label *label, struct path *path,
-		     int flags, char *buffer, const char**name,
-		     struct path_cond *cond, u32 request, bool delegate_deleted)
-{
-	struct aa_profile *profile;
-	const char *info = NULL;
-	int error = aa_path_name(path, flags, buffer, name, &info);
-	if (error) {
-		if (error == -ENOENT && is_deleted(path->dentry) &&
-		    delegate_deleted)
-			return 1;
-		fn_for_each_confined(label, profile,
-			aa_audit_file(profile, &nullperms, op, request, *name,
-				      NULL, cond->uid, info, error));
-		return error;
-	}
-
-	return 0;
 }
 
 /**
