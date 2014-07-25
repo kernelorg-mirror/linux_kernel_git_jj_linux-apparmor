@@ -120,11 +120,18 @@ enum label_flags {
 	FLAG_MEDIATE_DELETED = 0x10000, /* mediate instead delegate deleted */
 };
 
+struct aa_label;
+struct aa_replacedby {
+	struct kref count;
+	struct aa_label __rcu *label;
+};
+
 /* struct aa_label - lazy labeling struct
  * @count: ref count of active users
  * @node: rbtree position
  * @rcu: rcu callback struct
- * @name: text representation of the label (MAYBE_NULL)
+ * @replacedby: is set to the label that replaced this label
+ * @hname: text representation of the label (MAYBE_NULL)
  * @flags: invalid and other flags - values may change under label set lock
  * @sid: sid that references this label
  * @size: number of entries in @ent[]
@@ -134,6 +141,7 @@ struct aa_label {
 	struct kref count;
 	struct rb_node node;
 	struct rcu_head rcu;
+	struct aa_replacedby *replacedby;
 	__counted char *hname;
 	long flags;
 	u32 sid;
@@ -206,10 +214,69 @@ static inline struct aa_label *aa_get_label_not0(struct aa_label *l)
 	return NULL;
 }
 
+/**
+ * aa_get_label_rcu - increment refcount on a label that can be replaced
+ * @l: pointer to label that can be replaced (NOT NULL)
+ *
+ * Returns: pointer to a refcounted label.
+ *     else NULL if no label
+ */
+static inline struct aa_label *aa_get_label_rcu(struct aa_label __rcu **l)
+{
+	struct aa_label *c;
+
+	rcu_read_lock();
+	do {
+		c = rcu_dereference(*l);
+	} while (c && !kref_get_not0(&c->count));
+	rcu_read_unlock();
+
+	return c;
+}
+
+/**
+ * aa_get_newest_label - find the newest version of @l
+ * @l: the label to check for newer versions of
+ *
+ * Returns: refcounted newest version of @l taking into account
+ *          replacement, renames and removals
+ *          return @l.
+ */
+static inline struct aa_label *aa_get_newest_label(struct aa_label *l)
+{
+	if (!l)
+		return NULL;
+
+	if (label_invalid(l))
+		return aa_get_label_rcu(&l->replacedby->label);
+
+	return aa_get_label(l);
+}
+
 static inline void aa_put_label(struct aa_label *l)
 {
 	if (l)
 		kref_put(&l->count, aa_label_kref);
 }
+
+
+struct aa_replacedby *aa_alloc_replacedby(struct aa_label *l);
+void aa_free_replacedby_kref(struct kref *kref);
+
+static inline struct aa_replacedby *aa_get_replacedby(struct aa_replacedby *r)
+{
+	if (r)
+		kref_get(&(r->count));
+
+	return r;
+}
+
+static inline void aa_put_replacedby(struct aa_replacedby *r)
+{
+	if (r)
+		kref_put(&r->count, aa_free_replacedby_kref);
+}
+
+void __aa_update_replacedby(struct aa_label *orig, struct aa_label *new);
 
 #endif /* __AA_LABEL_H */

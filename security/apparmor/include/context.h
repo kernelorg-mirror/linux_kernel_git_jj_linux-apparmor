@@ -153,7 +153,7 @@ static inline struct aa_profile *aa_current_profile(void)
 	BUG_ON(!cxt || !cxt->profile);
 
 	if (PROFILE_INVALID(cxt->profile)) {
-		profile = aa_get_newest_profile(cxt->profile);
+		profile = labels_profile(aa_get_newest_label(&cxt->profile->label));
 		aa_replace_current_profile(profile);
 		aa_put_profile(profile);
 		cxt = current_cxt();

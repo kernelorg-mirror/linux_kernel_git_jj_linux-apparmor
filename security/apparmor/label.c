@@ -38,6 +38,49 @@
  *
  */
 
+static void free_replacedby(struct aa_replacedby *r)
+{
+	if (r) {
+		/* r->label will not updated any more as r is dead */
+		aa_put_label(rcu_dereference_protected(r->label, true));
+		kzfree(r);
+	}
+}
+
+void aa_free_replacedby_kref(struct kref *kref)
+{
+	struct aa_replacedby *r = container_of(kref, struct aa_replacedby,
+					       count);
+	free_replacedby(r);
+}
+
+struct aa_replacedby *aa_alloc_replacedby(struct aa_label *l)
+{
+	struct aa_replacedby *r;
+
+	r = kzalloc(sizeof(struct aa_replacedby), GFP_KERNEL);
+	if (r) {
+		kref_init(&r->count);
+		rcu_assign_pointer(r->label, aa_get_label(l));
+	}
+	return r;
+}
+
+/* requires profile list write lock held */
+void __aa_update_replacedby(struct aa_label *orig, struct aa_label *new)
+{
+	struct aa_label *tmp;
+
+	AA_BUG(!orig);
+	AA_BUG(!new);
+	AA_BUG(!mutex_is_locked(&labels_ns(orig)->lock));
+
+	tmp = rcu_dereference_protected(orig->replacedby->label,
+					&labels_ns(orig)->lock);
+	rcu_assign_pointer(orig->replacedby->label, aa_get_label(new));
+	orig->flags |= FLAG_INVALID;
+	aa_put_label(tmp);
+}
 
 /* helper fn for label_for_each_confined */
 int aa_label_next_confined(struct aa_label *l, int i)
@@ -84,6 +127,7 @@ void aa_label_destroy(struct aa_label *label)
 	}
 
 	aa_free_sid(label->sid);
+	aa_put_replacedby(label->replacedby);
 }
 
 void aa_label_free(struct aa_label *label)

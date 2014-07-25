@@ -175,7 +175,7 @@ int aa_set_current_hat(struct aa_profile *profile, u64 token)
 		abort_creds(new);
 		return -EACCES;
 	}
-	cxt->profile = aa_get_newest_profile(profile);
+	cxt->profile = labels_profile(aa_get_newest_label(&profile->label));
 	/* clear exec on switching context */
 	aa_put_profile(cxt->onexec);
 	cxt->onexec = NULL;
@@ -212,7 +212,7 @@ int aa_restore_previous_profile(u64 token)
 	}
 
 	aa_put_profile(cxt->profile);
-	cxt->profile = aa_get_newest_profile(cxt->previous);
+	cxt->profile = labels_profile(aa_get_newest_label(&cxt->previous->label));
 	BUG_ON(!cxt->profile);
 	/* clear exec && prev information when restoring to previous context */
 	aa_clear_task_cxt_trans(cxt);

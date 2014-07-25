@@ -508,11 +508,11 @@ static int apparmor_getprocattr(struct task_struct *task, char *name,
 	struct aa_profile *profile = NULL;
 
 	if (strcmp(name, "current") == 0)
-		profile = aa_get_newest_profile(cxt->profile);
+		profile = labels_profile(aa_get_newest_label(&cxt->profile->label));
 	else if (strcmp(name, "prev") == 0  && cxt->previous)
-		profile = aa_get_newest_profile(cxt->previous);
+		profile = labels_profile(aa_get_newest_label(&cxt->previous->label));
 	else if (strcmp(name, "exec") == 0 && cxt->onexec)
-		profile = aa_get_newest_profile(cxt->onexec);
+		profile = labels_profile(aa_get_newest_label(&cxt->onexec->label));
 	else
 		error = -EINVAL;
 

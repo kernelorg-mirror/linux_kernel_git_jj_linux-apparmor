@@ -140,17 +140,11 @@ struct aa_policydb {
 
 };
 
-struct aa_replacedby {
-	struct kref count;
-	struct aa_profile __rcu *profile;
-};
-
 /* struct aa_profile - basic confinement data
  * @base - base components of the profile (name, refcount, lists, lock ...)
  * @label - label this profile is an extension of
  * @parent: parent of profile
  * @ns: namespace the profile is in
- * @replacedby: is set to the profile that replaced this profile
  * @rename: optional profile name that this profile renamed
  * @attach: human readable attachment string
  * @xmatch: optional extended matching for unconfined executables names
@@ -187,7 +181,6 @@ struct aa_profile {
 	struct aa_profile __rcu *parent;
 
 	struct aa_namespace *ns;
-	struct aa_replacedby *replacedby;
 	const char *rename;
 
 	const char *attach;
@@ -224,7 +217,6 @@ struct aa_namespace *aa_find_namespace(struct aa_namespace *root,
 				       const char *name);
 
 
-void aa_free_replacedby_kref(struct kref *kref);
 struct aa_profile *aa_alloc_profile(const char *name);
 struct aa_profile *aa_new_null_profile(struct aa_profile *parent, int hat);
 struct aa_profile *aa_setup_default_profile(void);
@@ -313,25 +305,6 @@ static inline struct aa_profile *aa_get_profile_rcu(struct aa_profile __rcu **p)
 }
 
 /**
- * aa_get_newest_profile - find the newest version of @profile
- * @profile: the profile to check for newer versions of
- *
- * Returns: refcounted newest version of @profile taking into account
- *          replacement, renames and removals
- *          return @profile.
- */
-static inline struct aa_profile *aa_get_newest_profile(struct aa_profile *p)
-{
-	if (!p)
-		return NULL;
-
-	if (PROFILE_INVALID(p))
-		return aa_get_profile_rcu(&p->replacedby->profile);
-
-	return aa_get_profile(p);
-}
-
-/**
  * aa_put_profile - decrement refcount on profile @p
  * @p: profile  (MAYBE NULL)
  */
@@ -339,32 +312,6 @@ static inline void aa_put_profile(struct aa_profile *p)
 {
 	if (p)
 		kref_put(&p->label.count, aa_label_kref);
-}
-
-static inline struct aa_replacedby *aa_get_replacedby(struct aa_replacedby *p)
-{
-	if (p)
-		kref_get(&(p->count));
-
-	return p;
-}
-
-static inline void aa_put_replacedby(struct aa_replacedby *p)
-{
-	if (p)
-		kref_put(&p->count, aa_free_replacedby_kref);
-}
-
-/* requires profile list write lock held */
-static inline void __aa_update_replacedby(struct aa_profile *orig,
-					  struct aa_profile *new)
-{
-	struct aa_profile *tmp;
-	tmp = rcu_dereference_protected(orig->replacedby->profile,
-					mutex_is_locked(&orig->ns->lock));
-	rcu_assign_pointer(orig->replacedby->profile, aa_get_profile(new));
-	orig->label.flags |= FLAG_INVALID;
-	aa_put_profile(tmp);
 }
 
 /**

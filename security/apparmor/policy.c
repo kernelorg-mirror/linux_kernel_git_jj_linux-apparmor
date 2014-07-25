@@ -297,6 +297,9 @@ static struct aa_namespace *alloc_namespace(const char *prefix,
 	ns->unconfined = aa_alloc_profile("unconfined");
 	if (!ns->unconfined)
 		goto fail_unconfined;
+	ns->unconfined->label.replacedby = aa_alloc_replacedby(NULL);
+	if (!ns->unconfined->label.replacedby)
+		goto fail_replacedby;
 
 	ns->unconfined->label.flags |= FLAG_IX_ON_NAME_ERROR |
 		FLAG_IMMUTIBLE | FLAG_NS_COUNT | FLAG_UNCONFINED;
@@ -310,6 +313,9 @@ static struct aa_namespace *alloc_namespace(const char *prefix,
 	aa_labelset_init(&ns->labels);
 
 	return ns;
+
+fail_replacedby:
+	aa_free_profile(ns->unconfined);
 
 fail_unconfined:
 	kzfree(ns->base.hname);
@@ -490,7 +496,8 @@ static void __remove_profile(struct aa_profile *profile)
 	__profile_list_release(&profile->base.profiles);
 	/* released by free_profile */
 	aa_label_remove(&profile->ns->labels, &profile->label);
-	__aa_update_replacedby(profile, profile->ns->unconfined);
+	__aa_update_replacedby(&profile->label,
+			       &profile->ns->unconfined->label);
 	__aa_fs_profile_rmdir(profile);
 	__list_remove_profile(profile);
 }
@@ -527,7 +534,8 @@ static void destroy_namespace(struct aa_namespace *ns)
 	__ns_list_release(&ns->sub_ns);
 
 	if (ns->parent)
-		__aa_update_replacedby(ns->unconfined, ns->parent->unconfined);
+		__aa_update_replacedby(&ns->unconfined->label,
+				       &ns->parent->unconfined->label);
 	__aa_fs_namespace_rmdir(ns);
 	mutex_unlock(&ns->lock);
 }
@@ -589,23 +597,6 @@ void __init aa_free_root_ns(void)
 }
 
 
-static void free_replacedby(struct aa_replacedby *r)
-{
-	if (r) {
-		/* r->profile will not be updated any more as r is dead */
-		aa_put_profile(rcu_dereference_protected(r->profile, true));
-		kzfree(r);
-	}
-}
-
-
-void aa_free_replacedby_kref(struct kref *kref)
-{
-	struct aa_replacedby *r = container_of(kref, struct aa_replacedby,
-					       count);
-	free_replacedby(r);
-}
-
 /**
  * aa_free_profile - free a profile
  * @profile: the profile to free  (MAYBE NULL)
@@ -637,7 +628,6 @@ void aa_free_profile(struct aa_profile *profile)
 	kzfree(profile->dirname);
 	aa_put_dfa(profile->xmatch);
 	aa_put_dfa(profile->policy.dfa);
-	aa_put_replacedby(profile->replacedby);
 
 	kzfree(profile->hash);
 	kzfree(profile);
@@ -658,11 +648,6 @@ struct aa_profile *aa_alloc_profile(const char *hname)
 	if (!profile)
 		return NULL;
 
-	profile->replacedby = kzalloc(sizeof(struct aa_replacedby), GFP_KERNEL);
-	if (!profile->replacedby)
-		goto fail;
-	kref_init(&profile->replacedby->count);
-
 	if (!policy_init(&profile->base, NULL, hname))
 		goto fail;
 	if (!aa_label_init(&profile->label, 1))
@@ -675,7 +660,6 @@ struct aa_profile *aa_alloc_profile(const char *hname)
 	return profile;
 
 fail:
-	kzfree(profile->replacedby);
 	kzfree(profile);
 
 	return NULL;
@@ -712,6 +696,10 @@ struct aa_profile *aa_new_null_profile(struct aa_profile *parent, int hat)
 	if (!profile)
 		goto fail;
 
+	profile->label.replacedby = aa_alloc_replacedby(NULL);
+	if (!profile->label.replacedby)
+		goto fail;
+
 	profile->mode = APPARMOR_COMPLAIN;
 	profile->label.flags |= FLAG_NULL;
 	if (hat)
@@ -729,6 +717,7 @@ struct aa_profile *aa_new_null_profile(struct aa_profile *parent, int hat)
 	return profile;
 
 fail:
+	aa_free_profile(profile);
 	return NULL;
 }
 
@@ -748,8 +737,11 @@ struct aa_profile *aa_setup_default_profile(void)
 	profile->ns = aa_get_namespace(root_ns);
 
 	/* replacedby being set needed by fs interface */
-	rcu_assign_pointer(profile->replacedby->profile,
-			   aa_get_profile(profile));
+	profile->label.replacedby = aa_alloc_replacedby(&profile->label);
+	if (!profile->label.replacedby) {
+		aa_free_profile(profile);
+		return NULL;
+	}
 	__add_profile(&root_ns->base.profiles, profile);
 
 	return profile;
@@ -904,7 +896,7 @@ struct aa_profile *aa_lookupn_profile(struct aa_namespace *ns,
 
 	/* the unconfined profile is not in the regular profile list */
 	if (!profile && strncmp(hname, "unconfined", n) == 0)
-		profile = aa_get_newest_profile(ns->unconfined);
+		profile = labels_profile(aa_get_newest_label(&ns->unconfined->label));
 
 	/* refcount released by caller */
 	return profile;
@@ -1057,14 +1049,13 @@ static void __replace_profile(struct aa_profile *old, struct aa_profile *new,
 		struct aa_profile *parent = aa_deref_parent(old);
 		rcu_assign_pointer(new->parent, aa_get_profile(parent));
 	}
-	__aa_update_replacedby(old, new);
-	if (share_replacedby) {
-		aa_put_replacedby(new->replacedby);
-		new->replacedby = aa_get_replacedby(old->replacedby);
-	} else if (!rcu_access_pointer(new->replacedby->profile))
+	__aa_update_replacedby(&old->label, &new->label);
+	if (share_replacedby)
+		new->label.replacedby = aa_get_replacedby(old->label.replacedby);
+	else if (!rcu_access_pointer(new->label.replacedby->label))
 		/* aafs interface uses replacedby */
-		rcu_assign_pointer(new->replacedby->profile,
-				   aa_get_profile(new));
+		rcu_assign_pointer(new->label.replacedby->label,
+				   aa_get_label(&new->label));
 	__aa_fs_profile_migrate_dents(old, new);
 
 	if (list_empty(&new->base.list)) {
@@ -1119,7 +1110,7 @@ static struct aa_profile *update_to_newest_parent(struct aa_profile *new)
 	struct aa_profile *parent, *newest;
 	parent = rcu_dereference_protected(new->parent,
 					   mutex_is_locked(&new->ns->lock));
-	newest = aa_get_newest_profile(parent);
+	newest = labels_profile(aa_get_newest_label(&parent->label));
 
 	/* parent replaced in this atomic set? */
 	if (newest != parent) {
@@ -1212,6 +1203,7 @@ ssize_t aa_replace_profiles(void *udata, size_t size, bool noreplace)
 
 	/* create new fs entries for introspection if needed */
 	list_for_each_entry(ent, &lh, list) {
+		struct aa_replacedby *r;
 		if (ent->old) {
 			/* inherit old interface files */
 
@@ -1221,6 +1213,14 @@ ssize_t aa_replace_profiles(void *udata, size_t size, bool noreplace)
 			TODO: support rename */
 		} else {
 			struct dentry *parent;
+			r = aa_alloc_replacedby(NULL);
+			if (!r) {
+				info = "failed to create";
+				error = -ENOMEM;
+				goto fail_lock;
+			}
+			ent->new->label.replacedby = r;
+
 			if (rcu_access_pointer(ent->new->parent)) {
 				struct aa_profile *p;
 				p = aa_deref_parent(ent->new);
@@ -1231,7 +1231,7 @@ ssize_t aa_replace_profiles(void *udata, size_t size, bool noreplace)
 		}
 
 		if (error) {
-			info = "failed to create ";
+			info = "failed to create";
 			goto fail_lock;
 		}
 	}
@@ -1251,16 +1251,14 @@ ssize_t aa_replace_profiles(void *udata, size_t size, bool noreplace)
 			__aa_labelset_invalidate_all(ns, ent->old);
 			if (ent->rename) {
 				/* aafs interface uses replacedby */
-				struct aa_replacedby *r = ent->new->replacedby;
-				rcu_assign_pointer(r->profile,
-						   aa_get_profile(ent->new));
+				rcu_assign_pointer(ent->new->label.replacedby->label,
+						   aa_get_label(&ent->new->label));
 				__replace_profile(ent->rename, ent->new, 0);
 			}
 		} else if (ent->rename) {
 			/* aafs interface uses replacedby */
-			rcu_assign_pointer(ent->new->replacedby->profile,
-					   aa_get_profile(ent->new));
-			__replace_profile(ent->rename, ent->new, 0);
+			rcu_assign_pointer(ent->new->label.replacedby->label,
+					   aa_get_label(&ent->new->label));
 		} else {
 			struct list_head *lh;
 			if (rcu_access_pointer(ent->new->parent)) {
@@ -1271,8 +1269,8 @@ ssize_t aa_replace_profiles(void *udata, size_t size, bool noreplace)
 				lh = &ns->base.profiles;
 
 			/* aafs interface uses replacedby */
-			rcu_assign_pointer(ent->new->replacedby->profile,
-					   aa_get_profile(ent->new));
+			rcu_assign_pointer(ent->new->label.replacedby->label,
+					   aa_get_label(&ent->new->label));
 			__add_profile(lh, ent->new);
 		}
 		aa_load_ent_free(ent);

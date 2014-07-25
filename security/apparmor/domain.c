@@ -357,7 +357,7 @@ int apparmor_bprm_set_creds(struct linux_binprm *bprm)
 	cxt = cred_cxt(bprm->cred);
 	BUG_ON(!cxt);
 
-	profile = aa_get_newest_profile(cxt->profile);
+	profile = labels_profile(aa_get_newest_label(&cxt->profile->label));
 	/*
 	 * get the namespace from the replacement profile as replacement
 	 * can change the namespace
@@ -415,7 +415,7 @@ int apparmor_bprm_set_creds(struct linux_binprm *bprm)
 
 		if (!(cp.allow & AA_MAY_ONEXEC))
 			goto audit;
-		new_profile = aa_get_newest_profile(cxt->onexec);
+		new_profile = labels_profile(aa_get_newest_label(&cxt->onexec->label));
 		goto apply;
 	}
 
@@ -432,7 +432,7 @@ int apparmor_bprm_set_creds(struct linux_binprm *bprm)
 				new_profile = aa_get_profile(profile);
 				goto x_clear;
 			} else if (perms.xindex & AA_X_UNCONFINED) {
-				new_profile = aa_get_newest_profile(ns->unconfined);
+				new_profile = labels_profile(aa_get_newest_label(&ns->unconfined->label));
 				info = "ux fallback";
 			} else {
 				error = -ENOENT;

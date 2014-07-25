@@ -389,9 +389,10 @@ static int aa_fs_seq_profile_release(struct inode *inode, struct file *file)
 static int aa_fs_seq_profname_show(struct seq_file *seq, void *v)
 {
 	struct aa_replacedby *r = seq->private;
-	struct aa_profile *profile = aa_get_profile_rcu(&r->profile);
+	struct aa_label *label = aa_get_label_rcu(&r->label);
+	struct aa_profile *profile = labels_profile(label);
 	seq_printf(seq, "%s\n", profile->base.name);
-	aa_put_profile(profile);
+	aa_put_label(label);
 
 	return 0;
 }
@@ -412,9 +413,10 @@ static const struct file_operations aa_fs_profname_fops = {
 static int aa_fs_seq_profmode_show(struct seq_file *seq, void *v)
 {
 	struct aa_replacedby *r = seq->private;
-	struct aa_profile *profile = aa_get_profile_rcu(&r->profile);
+	struct aa_label *label = aa_get_label_rcu(&r->label);
+	struct aa_profile *profile = labels_profile(label);
 	seq_printf(seq, "%s\n", aa_profile_mode_names[profile->mode]);
-	aa_put_profile(profile);
+	aa_put_label(label);
 
 	return 0;
 }
@@ -435,14 +437,15 @@ static const struct file_operations aa_fs_profmode_fops = {
 static int aa_fs_seq_profattach_show(struct seq_file *seq, void *v)
 {
 	struct aa_replacedby *r = seq->private;
-	struct aa_profile *profile = aa_get_profile_rcu(&r->profile);
+	struct aa_label *label = aa_get_label_rcu(&r->label);
+	struct aa_profile *profile = labels_profile(label);
 	if (profile->attach)
 		seq_printf(seq, "%s\n", profile->attach);
 	else if (profile->xmatch)
 		seq_puts(seq, "<unknown>\n");
 	else
 		seq_printf(seq, "%s\n", profile->base.name);
-	aa_put_profile(profile);
+	aa_put_label(label);
 
 	return 0;
 }
@@ -463,7 +466,8 @@ static const struct file_operations aa_fs_profattach_fops = {
 static int aa_fs_seq_hash_show(struct seq_file *seq, void *v)
 {
 	struct aa_replacedby *r = seq->private;
-	struct aa_profile *profile = aa_get_profile_rcu(&r->profile);
+	struct aa_label *label = aa_get_label_rcu(&r->label);
+	struct aa_profile *profile = labels_profile(label);
 	unsigned int i, size = aa_hash_size();
 
 	if (profile->hash) {
@@ -527,7 +531,7 @@ static struct dentry *create_profile_file(struct dentry *dir, const char *name,
 					  struct aa_profile *profile,
 					  const struct file_operations *fops)
 {
-	struct aa_replacedby *r = aa_get_replacedby(profile->replacedby);
+	struct aa_replacedby *r = aa_get_replacedby(profile->label.replacedby);
 	struct dentry *dent;
 
 	dent = securityfs_create_file(name, S_IFREG | 0444, dir, r, fops);
