@@ -469,6 +469,27 @@ out:
 	return error;
 }
 
+static void update_file_cxt(struct aa_file_cxt *fcxt, struct aa_label *label,
+			    u32 request)
+{
+	struct aa_label *l, *old;
+
+	/* update caching of label on file_cxt */
+	spin_lock(&fcxt->lock);
+	old = rcu_dereference_protected(fcxt->label,
+					spin_is_locked(&fcxt->lock));
+	l = aa_label_merge(old, label, GFP_ATOMIC);
+	if (l) {
+		if (l != old) {
+			rcu_assign_pointer(fcxt->label, l);
+			aa_put_label(old);
+		} else
+			aa_put_label(l);
+		fcxt->allow |= request;
+	}
+	spin_unlock(&fcxt->lock);
+}
+
 static int __file_path_perm(int op, struct aa_label *label,
 			    struct aa_label *flabel, struct file *file,
 			    u32 request, u32 denied)
@@ -499,47 +520,37 @@ static int __file_path_perm(int op, struct aa_label *label,
 		goto out;
 	}
 
+	/* revalidation due to label out of date. No revocation at this time */
+	if (!denied && flabel == label)
+		goto out;
+
+	/* TODO: skip checking profiles already cached on flabel */
+	error = fn_for_each_confined(label, profile,
+				path_perm(op, profile, name, request, &cond,
+					  &perms));
+	if (error)
+		goto out;
+
 	if (denied) {
-		/* expanding cached perms need to check both label and flabel */
+		/* expanding cached perms
+		 * - check profiles in flabel not already checked in label
+		 */
 		/* TODO: cache full perms so this only happens because of
 		 * conditionals */
-		error = fn_for_each_in_merge(flabel, label, profile,
+		/* TODO: don't audit here
+		int e = fn_for_each_not_in_set(label, flabel, profile,
 				path_perm(op, profile, name, request, &cond,
 					  &perms));
-	} else {
-		/* are we revalidating just because the label was out of date */
-		if (flabel == label)
+		if (e)
 			goto out;
-
-		error = fn_for_each_not_in_set(flabel, label, profile,
-				path_perm(op, profile, name, request, &cond,
-					  &perms));
+		*/
 	}
+
+	/*update_file_cxt(fcxt, label, request);*/
 
 out:
 	__put_buffers(buffer);
 	return error;
-}
-
-static void update_file_cxt(struct aa_file_cxt *fcxt, struct aa_label *label,
-			    u32 request)
-{
-	struct aa_label *l, *old;
-
-	/* update caching of label on file_cxt */
-	spin_lock(&fcxt->lock);
-	old = rcu_dereference_protected(fcxt->label,
-					spin_is_locked(&fcxt->lock));
-	l = aa_label_merge(old, label, GFP_ATOMIC);
-	if (l) {
-		if (l != old) {
-			rcu_assign_pointer(fcxt->label, l);
-			aa_put_label(old);
-		} else
-			aa_put_label(l);
-		fcxt->allow |= request;
-	}
-	spin_unlock(&fcxt->lock);
 }
 
 /**
@@ -586,9 +597,6 @@ int aa_file_perm(int op, struct aa_label *label, struct file *file,
 	if (file->f_path.mnt && path_mediated_fs(file_inode(file)))
 		error = __file_path_perm(op, label, flabel, file, request,
 					 denied);
-	if (error)
-		goto done;
-	/*update_file_cxt(fcxt, label, request);*/
 
 done:
 	rcu_read_unlock();
