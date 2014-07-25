@@ -43,7 +43,6 @@ static int prepend(char **buffer, int buflen, const char *str, int namelen)
  * d_namespace_path - lookup a name associated with a given path
  * @path: path to lookup  (NOT NULL)
  * @buf:  buffer to store path to  (NOT NULL)
- * @buflen: length of @buf
  * @name: Returns - pointer for start of path name with in @buf (NOT NULL)
  * @flags: flags controlling path lookup
  *
@@ -53,12 +52,14 @@ static int prepend(char **buffer, int buflen, const char *str, int namelen)
  *          When no error the path name is returned in @name which points to
  *          to a position in @buf
  */
-static int d_namespace_path(struct path *path, char *buf, int buflen,
-			    char **name, int flags)
+static int d_namespace_path(struct path *path, char *buf, char **name,
+			    int flags)
 {
 	char *res;
 	int error = 0;
 	int connected = 1;
+	int isdir = (flags & PATH_IS_DIR) ? 1 : 0;
+	int buflen = aa_g_path_max - isdir;
 
 	if (path->mnt->mnt_flags & MNT_INTERNAL) {
 		/* it's not mounted anywhere */
@@ -73,9 +74,11 @@ static int d_namespace_path(struct path *path, char *buf, int buflen,
 			/* TODO: convert over to using a per namespace
 			 * control instead of hard coded /proc
 			 */
-			return prepend(name, *name - buf, "/proc", 5);
+			error = prepend(name, *name - buf, "/proc", 5);
+			goto out;
 		}
-		return 0;
+
+		goto out;
 	}
 
 	/* resolve paths relative to chroot?*/
@@ -94,8 +97,11 @@ static int d_namespace_path(struct path *path, char *buf, int buflen,
 	 * be returned.
 	 */
 	if (!res || IS_ERR(res)) {
-		if (PTR_ERR(res) == -ENAMETOOLONG)
-			return -ENAMETOOLONG;
+		if (PTR_ERR(res) == -ENAMETOOLONG) {
+			error = -ENAMETOOLONG;
+			*name = buf;
+			goto out;
+		}
 		connected = 0;
 		res = dentry_path_raw(path->dentry, buf, buflen);
 		if (IS_ERR(res)) {
@@ -145,6 +151,13 @@ static int d_namespace_path(struct path *path, char *buf, int buflen,
 	}
 
 out:
+	/*
+	 * Append "/" to the pathname.  The root directory is a special
+	 * case; it already ends in slash.
+	 */
+	if (!error && isdir && ((*name)[1] != '\0' || (*name)[0] != '/'))
+		strcpy(&buf[aa_g_path_max - 2], "/");
+
 	return error;
 }
 
@@ -171,16 +184,8 @@ int aa_path_name(struct path *path, int flags, char *buffer, const char **name,
 		 const char **info)
 {
 	char *str = NULL;
-	int adjust = (flags & PATH_IS_DIR) ? 1 : 0;
-	int error = d_namespace_path(path, buffer, aa_g_path_max - adjust,
-				     &str, flags);
+	int error = d_namespace_path(path, buffer, &str, flags);
 
-	if (!error && (flags & PATH_IS_DIR) && str[1] != '\0')
-		/*
-		 * Append "/" to the pathname.  The root directory is a special
-		 * case; it already ends in slash.
-		 */
-		strcpy(&buffer[aa_g_path_max - 2], "/");
 
 	if (info && error) {
 		if (error == -ENOENT)
