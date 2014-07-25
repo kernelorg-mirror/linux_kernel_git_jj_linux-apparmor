@@ -97,6 +97,25 @@ static int audit_net(struct aa_profile *profile, int op, u16 family, int type,
 	return aa_audit(audit_type, profile, &sa, audit_cb);
 }
 
+static int af_mask_perm(int op, struct aa_profile *profile, u16 family,
+			int type, int protocol, struct sock *sk)
+{
+	u16 family_mask;
+	int error = 0;
+
+	if (profile_unconfined(profile))
+		return 0;
+
+	if ((family < 0) || (family >= AF_MAX))
+		return -EINVAL;
+	if ((type < 0) || (type >= SOCK_MAX))
+		return -EINVAL;
+
+	family_mask = profile->net.allow[family];
+	error = (family_mask & (1 << type)) ? 0 : -EACCES;
+	return audit_net(profile, op, family, type, protocol, sk, error);
+}
+
 /**
  * aa_net_perm - very course network access check
  * @op: operation being checked
@@ -111,9 +130,6 @@ int aa_net_perm(int op, struct aa_label *label, u16 family, int type,
 		int protocol, struct sock *sk)
 {
 	struct aa_profile *profile;
-	u16 family_mask;
-	struct label_it i;
-	int error = 0;
 
 	if ((family < 0) || (family >= AF_MAX))
 		return -EINVAL;
@@ -125,16 +141,9 @@ int aa_net_perm(int op, struct aa_label *label, u16 family, int type,
 	if (family == AF_UNIX || family == AF_NETLINK)
 		return 0;
 
-	label_for_each_confined(i, label, profile) {
-		family_mask = profile->net.allow[family];
-		error = (family_mask & (1 << type)) ? 0 : -EACCES;
-		error = audit_net(profile, op, family, type, protocol, sk,
-				  error);
-		if (error)
-			break;
-	}
 
-	return error;
+	return fn_for_each_confined(label, profile,
+			af_mask_perm(op, profile, family, type, protocol, sk));
 }
 
 /**
