@@ -927,7 +927,7 @@ static void destroy_buffers(void)
 
 	for_each_possible_cpu(i) {
 		for_each_cpu_buffer(j) {
-			kvfree(per_cpu(aa_buffers, i).buf[j]);
+			kfree(per_cpu(aa_buffers, i).buf[j]);
 			per_cpu(aa_buffers, i).buf[j] = NULL;
 		}
 	}
@@ -939,7 +939,7 @@ static int __init alloc_buffers(void)
 
 	for_each_possible_cpu(i) {
 		for_each_cpu_buffer(j) {
-			char *buffer = kvmalloc(aa_g_path_max);
+			char *buffer = kmalloc(aa_g_path_max, GFP_KERNEL);
 			if (!buffer) {
 				destroy_buffers();
 				return -ENOMEM;
