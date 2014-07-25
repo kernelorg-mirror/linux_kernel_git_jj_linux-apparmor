@@ -838,8 +838,10 @@ static int apparmor_unix_may_send(struct socket *sock, struct socket *other)
 	/* TODO update label instead */
 	AA_BUG(!aa_label_is_subset(cxt->label, label));
 
-	error = cross_check(unix_fs_perm(OP_SENDMSG, cxt->label, other->sk, MAY_WRITE),
-			    unix_fs_perm(OP_SENDMSG, other_cxt->label, sock->sk, MAY_READ));
+	error = xcheck(unix_fs_perm(OP_SENDMSG, cxt->label, other->sk,
+				    MAY_WRITE),
+		       unix_fs_perm(OP_SENDMSG, other_cxt->label, sock->sk,
+				    MAY_READ));
 	__aa_put_current_label(label);
 
 	return error;

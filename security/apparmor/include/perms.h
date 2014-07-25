@@ -92,7 +92,7 @@ struct aa_perms {
 #define ALL_PERMS_MASK 0xffffffff
 
 
-#define cross_check(FN1, FN2)	\
+#define xcheck(FN1, FN2)	\
 ({				\
 	int e, error = FN1;	\
 	e = FN2;		\
@@ -104,10 +104,10 @@ struct aa_perms {
 /* pattern: perform send/receive style paired cross check of permissions
  *
  */
-#define cross_check_profiles(P1, P2, FN1, FN2, PERM, args...)	\
+#define xcheck_profiles(P1, P2, FN1, FN2, PERM, args...)	\
 ({								\
-	cross_check(FN1(P1, P2, PERM, args),			\
-		    FN2(P2, P1, PERM, args));			\
+	xcheck(FN1(P1, P2, PERM, args),				\
+	       FN2(P2, P1, PERM, args));			\
 })
 
 
@@ -115,25 +115,25 @@ struct aa_perms {
 *  Note: this only works for profiles from a single namespace
 */
 
-#define cross_check_profile_label(P, L, FN, args...)		\
+#define xcheck_profile_label(P, L, FN, args...)			\
 ({								\
 	struct aa_profile *__p2;				\
 	fn_for_each((L), __p2, FN((P), __p2, args));		\
 })
 
-#define cross_check_ns_labels(L1, L2, FN, args...)		\
+#define xcheck_ns_labels(L1, L2, FN, args...)			\
 ({								\
 	struct aa_profile *__p1;				\
 	fn_for_each((L1), __p1, FN(__p1, (L2), args));		\
 })
 
 /* todo: fix to handle multiple namespaces */
-#define cross_check_labels(L1, L2, FN, args...)			\
-	cross_check_ns_labels((L1), (L2), FN, args)
+#define xcheck_labels(L1, L2, FN, args...)			\
+	xcheck_ns_labels((L1), (L2), FN, args)
 
 /* Do the cross check but applying FN at the profiles level */
-#define cross_check_labels_profiles(L1, L2, FN, args...)	\
-	cross_check_ns_labels((L1), (L2), cross_check_profile_label, (FN), args)
+#define xcheck_labels_profiles(L1, L2, FN, args...)		\
+	xcheck_ns_labels((L1), (L2), xcheck_profile_label, (FN), args)
 
 
 #define FINAL_CHECK true
@@ -161,9 +161,9 @@ static inline int aa_cross_label_perm(struct aa_profile *profile,
 				      u32 * deny, struct common_audit_data *sa)
 {
   /* TODO: ??? 2nd aa_profile_label_perm needs to reverse perms */
-	return cross_check_profiles(profile, target, aa_profile_label_perm,
-				    aa_profile_label_perm, request, type, deny,
-				    sa);
+	return xcheck_profiles(profile, target, aa_profile_label_perm,
+			       aa_profile_label_perm, request, type, deny,
+			       sa);
 }
 
 

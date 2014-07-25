@@ -95,8 +95,8 @@ static int cross_ptrace_perm(struct aa_profile *tracer,
 			     struct common_audit_data *sa)
 {
 	if (PROFILE_MEDIATES(tracer, AA_CLASS_PTRACE))
-		return cross_check_profiles(tracer, tracee, profile_ptrace_perm,
-					    x_profile_ptrace_perm, request, sa);
+		return xcheck_profiles(tracer, tracee, profile_ptrace_perm,
+				       x_profile_ptrace_perm, request, sa);
 
 	/* policy uses the old style capability check for ptrace */
 	if (tracer == tracee)
@@ -122,8 +122,8 @@ int aa_may_ptrace(struct aa_label *tracer, struct aa_label *tracee,
 {
 	DEFINE_AUDIT_DATA(sa, LSM_AUDIT_DATA_NONE, OP_PTRACE);
 
-	return cross_check_labels_profiles(tracer, tracee, cross_ptrace_perm,
-					   request, &sa);
+	return xcheck_labels_profiles(tracer, tracee, cross_ptrace_perm,
+				      request, &sa);
 }
 
 
@@ -221,14 +221,14 @@ static int aa_signal_cross_perm(struct aa_profile *sender,
 				struct aa_profile *target,
 				struct common_audit_data *sa)
 {
-	return cross_check_profiles(sender, target, profile_signal_perm,
-				    x_profile_signal_perm, MAY_WRITE, sa);
+	return xcheck_profiles(sender, target, profile_signal_perm,
+			       x_profile_signal_perm, MAY_WRITE, sa);
 }
 
 int aa_may_signal(struct aa_label *sender, struct aa_label *target, int sig)
 {
 	DEFINE_AUDIT_DATA(sa, LSM_AUDIT_DATA_NONE, OP_SIGNAL);
 	aad(&sa)->signal = map_signal_num(sig);
-	return cross_check_labels_profiles(sender, target, aa_signal_cross_perm,
-					   &sa);
+	return xcheck_labels_profiles(sender, target, aa_signal_cross_perm,
+				      &sa);
 }
