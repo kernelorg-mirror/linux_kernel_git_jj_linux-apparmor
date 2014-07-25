@@ -978,6 +978,11 @@ static struct aa_fs_entry aa_fs_entry_namespaces[] = {
 	{ }
 };
 
+static struct aa_fs_entry aa_fs_entry_dbus[] = {
+	AA_FS_FILE_STRING("mask", "acquire send receive"),
+	{ }
+};
+
 static struct aa_fs_entry aa_fs_entry_features[] = {
 	AA_FS_DIR("policy",			aa_fs_entry_policy),
 	AA_FS_DIR("domain",			aa_fs_entry_domain),
@@ -990,6 +995,7 @@ static struct aa_fs_entry aa_fs_entry_features[] = {
 	AA_FS_DIR("caps",			aa_fs_entry_caps),
 	AA_FS_DIR("ptrace",			aa_fs_entry_ptrace),
 	AA_FS_DIR("signal",			aa_fs_entry_signal),
+	AA_FS_DIR("dbus",			aa_fs_entry_dbus),
 	{ }
 };
 
