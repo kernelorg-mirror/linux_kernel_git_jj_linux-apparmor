@@ -504,6 +504,11 @@ static const struct file_operations aa_fs_seq_hash_fops = {
 };
 
 /** fns to setup dynamic per profile/namespace files **/
+
+/**
+ *
+ * Requires: @profile->ns->lock held
+ */
 void __aa_fs_profile_rmdir(struct aa_profile *profile)
 {
 	struct aa_profile *child;
@@ -511,6 +516,7 @@ void __aa_fs_profile_rmdir(struct aa_profile *profile)
 
 	if (!profile)
 		return;
+	AA_BUG(!mutex_is_locked(&profiles_ns(profile)->lock));
 
 	list_for_each_entry(child, &profile->base.profiles, base.list)
 		__aa_fs_profile_rmdir(child);
@@ -527,10 +533,18 @@ void __aa_fs_profile_rmdir(struct aa_profile *profile)
 	}
 }
 
+/**
+ *
+ * Requires: @old->ns->lock held
+ */
 void __aa_fs_profile_migrate_dents(struct aa_profile *old,
 				   struct aa_profile *new)
 {
 	int i;
+
+	AA_BUG(!old);
+	AA_BUG(!new);
+	AA_BUG(!mutex_is_locked(&profiles_ns(old)->lock));
 
 	for (i = 0; i < AAFS_PROF_SIZEOF; i++) {
 		new->dents[i] = old->dents[i];
@@ -554,12 +568,18 @@ static struct dentry *create_profile_file(struct dentry *dir, const char *name,
 	return dent;
 }
 
-/* requires lock be held */
+/**
+ *
+ * Requires: @profile->ns->lock held
+ */
 int __aa_fs_profile_mkdir(struct aa_profile *profile, struct dentry *parent)
 {
 	struct aa_profile *child;
 	struct dentry *dent = NULL, *dir;
 	int error;
+
+	AA_BUG(!profile);
+	AA_BUG(!mutex_is_locked(&profiles_ns(profile)->lock));
 
 	if (!parent) {
 		struct aa_profile *p;
@@ -631,6 +651,10 @@ fail2:
 	return error;
 }
 
+/**
+ *
+ * Requires: @ns->lock held
+ */
 void __aa_fs_namespace_rmdir(struct aa_namespace *ns)
 {
 	struct aa_namespace *sub;
@@ -639,6 +663,7 @@ void __aa_fs_namespace_rmdir(struct aa_namespace *ns)
 
 	if (!ns)
 		return;
+	AA_BUG(!mutex_is_locked(&ns->lock));
 
 	list_for_each_entry(child, &ns->base.profiles, base.list)
 		__aa_fs_profile_rmdir(child);
@@ -655,6 +680,10 @@ void __aa_fs_namespace_rmdir(struct aa_namespace *ns)
 	}
 }
 
+/**
+ *
+ * Requires: @ns->lock held
+ */
 int __aa_fs_namespace_mkdir(struct aa_namespace *ns, struct dentry *parent,
 			    const char *name)
 {
@@ -662,6 +691,10 @@ int __aa_fs_namespace_mkdir(struct aa_namespace *ns, struct dentry *parent,
 	struct aa_profile *child;
 	struct dentry *dent, *dir;
 	int error;
+
+	AA_BUG(!ns);
+	AA_BUG(!parent);
+	AA_BUG(!mutex_is_locked(&ns->lock));
 
 	if (!name)
 		name = ns->base.name;
@@ -728,6 +761,10 @@ static struct aa_namespace *__next_namespace(struct aa_namespace *root,
 {
 	struct aa_namespace *parent, *next;
 
+	AA_BUG(!root);
+	AA_BUG(!ns);
+	AA_BUG(ns != root && !mutex_is_locked(&ns->parent->lock));
+
 	/* is next namespace a child */
 	if (!list_empty(&ns->sub_ns)) {
 		next = list_first_entry(&ns->sub_ns, typeof(*ns), base.list);
@@ -754,14 +791,17 @@ static struct aa_namespace *__next_namespace(struct aa_namespace *root,
 /**
  * __first_profile - find the first profile in a namespace
  * @root: namespace that is root of profiles being displayed (NOT NULL)
- * @ns: namespace to start in   (NOT NULL)
+ * @ns: namespace to start in   (MAY BE NULL)
  *
  * Returns: unrefcounted profile or NULL if no profile
- * Requires: profile->ns.lock to be held
+ * Requires: ns.lock to be held
  */
 static struct aa_profile *__first_profile(struct aa_namespace *root,
 					  struct aa_namespace *ns)
 {
+	AA_BUG(!root);
+	AA_BUG(ns && !mutex_is_locked(&ns->lock));
+
 	for (; ns; ns = __next_namespace(root, ns)) {
 		if (!list_empty(&ns->base.profiles))
 			return list_first_entry(&ns->base.profiles,
@@ -783,6 +823,9 @@ static struct aa_profile *__next_profile(struct aa_profile *p)
 {
 	struct aa_profile *parent;
 	struct aa_namespace *ns = p->ns;
+
+	AA_BUG(!p);
+	AA_BUG(!mutex_is_locked(&profiles_ns(p)->lock));
 
 	/* is next profile a child */
 	if (!list_empty(&p->base.profiles))
@@ -1192,8 +1235,11 @@ static int __init aa_create_aafs(void)
 	if (error)
 		goto error;
 
+	mutex_lock(&root_ns->lock);
 	error = __aa_fs_namespace_mkdir(root_ns, aa_fs_entry.dentry,
 					"policy");
+	mutex_unlock(&root_ns->lock);
+
 	if (error)
 		goto error;
 

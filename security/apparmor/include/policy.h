@@ -208,6 +208,7 @@ struct aa_profile {
 extern struct aa_namespace *root_ns;
 extern enum profile_mode aa_g_profile_mode;
 
+#define profiles_ns(P) ((P)->ns)
 void aa_add_profile(struct aa_policy *common, struct aa_profile *profile);
 
 bool aa_ns_visible(struct aa_namespace *curr, struct aa_namespace *view);
