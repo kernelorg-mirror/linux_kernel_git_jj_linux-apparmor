@@ -267,6 +267,9 @@ bool aa_label_make_newest(struct aa_labelset *ls, struct aa_label *old,
 			  struct aa_label *new);
 
 struct aa_label *aa_label_find(struct aa_labelset *ls, struct aa_label *l);
+struct aa_label *aa_label_vec_find(struct aa_labelset *ls,
+				   struct aa_profile **vec,
+				   int n);
 
 struct aa_profile *aa_label_next_in_merge(struct label_it *I,
 					  struct aa_label *a,

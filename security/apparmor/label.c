@@ -450,6 +450,34 @@ static int profile_cmp(struct aa_profile *a, struct aa_profile *b)
 }
 
 /**
+ * label_vec_cmp - label comparision for set ordering
+ * @a: label to compare (NOT NULL)
+ * @vec: vector of profiles to compare (NOT NULL)
+ * @n: length of @vev
+ *
+ * Returns: <0  if a < vec
+ *          ==0 if a == vec
+ *          >0  if a > vec
+ */
+static int label_vec_cmp(struct aa_label *a, struct aa_profile **vec, int n)
+{
+	int i;
+
+	AA_BUG(!a);
+	AA_BUG(!vec);
+	AA_BUG(!*vec);
+	AA_BUG(n <= 0);
+
+	for (i = 0; i < a->size && i < n; i++) {
+		int res = profile_cmp(a->ent[i], vec[i]);
+		if (res != 0)
+			return res;
+	}
+
+	return a->size - n;
+}
+
+/**
  * label_cmp - label comparision for set ordering
  * @a: label to compare (NOT NULL)
  * @b: label to compare (NOT NULL)
@@ -460,21 +488,50 @@ static int profile_cmp(struct aa_profile *a, struct aa_profile *b)
  */
 static int label_cmp(struct aa_label *a, struct aa_label *b)
 {
-	int i;
-
-	AA_BUG(!a);
 	AA_BUG(!b);
 
 	if (a == b)
 		return 0;
 
-	for (i = 0; i < a->size && i < b->size; i++) {
-		int res = profile_cmp(a->ent[i], b->ent[i]);
-		if (res != 0)
-			return res;
+	return label_vec_cmp(a, b->ent, b->size);
+}
+
+/**
+ * __aa_label_vec_find - find label that matches @vec in label set
+ * @ls: set of labels to search (NOT NULL)
+ * @vec: vec of profiles to find matching label for (NOT NULL)
+ * @n: length of @vec
+ *
+ * Requires: @ls lock held
+ *           caller to hold a valid ref on l
+ *
+ * Returns: unref counted @label if matching label is in tree
+ *     else NULL if @vec equiv is not in tree
+ */
+static struct aa_label *__aa_label_vec_find(struct aa_labelset *ls,
+					    struct aa_profile **vec, int n)
+{
+	struct rb_node *node;
+
+	AA_BUG(!ls);
+	AA_BUG(!vec);
+	AA_BUG(!*vec);
+	AA_BUG(n <= 0);
+
+	node = ls->root.rb_node;
+	while (node) {
+		struct aa_label *this = rb_entry(node, struct aa_label, node);
+		int result = label_vec_cmp(this, vec, n);
+
+		if (result > 0)
+			node = node->rb_left;
+		else if (result < 0)
+			node = node->rb_right;
+		else
+			return this;
 	}
 
-	return a->size - b->size;
+	return NULL;
 }
 
 /**
@@ -492,25 +549,38 @@ static int label_cmp(struct aa_label *a, struct aa_label *b)
 static struct aa_label *__aa_label_find(struct aa_labelset *ls,
 					struct aa_label *l)
 {
-	struct rb_node *node;
-
-	AA_BUG(!ls);
 	AA_BUG(!l);
 
-	node = ls->root.rb_node;
-	while (node) {
-		struct aa_label *this = rb_entry(node, struct aa_label, node);
-		int result = label_cmp(l, this);
+	return __aa_label_vec_find(ls, l->ent, l->size);
+}
 
-		if (result < 0)
-			node = node->rb_left;
-		else if (result > 0)
-			node = node->rb_right;
-		else
-			return this;
-	}
+/**
+ * aa_label_vec_find - find label @l in label set
+ * @ls: set of labels to search (NOT NULL)
+ * @vec: array of profiles to find equiv label for (NOT NULL)
+ * @n: length of @vec
+ *
+ * Returns: refcounted label if @vec equiv is in tree
+ *     else NULL if @vec equiv is not in tree
+ */
+struct aa_label *aa_label_vec_find(struct aa_labelset *ls,
+				   struct aa_profile **vec,
+				   int n)
+{
+	struct aa_label *label;
+	unsigned long flags;
 
-	return NULL;
+	AA_BUG(!ls);
+	AA_BUG(!vec);
+	AA_BUG(!*vec);
+	AA_BUG(n <= 0);
+
+	read_lock_irqsave(&ls->lock, flags);
+	label = aa_get_label(__aa_label_vec_find(ls, vec, n));
+	labelstats_inc(sread);
+	read_unlock_irqrestore(&ls->lock, flags);
+
+	return label;
 }
 
 /**
@@ -526,18 +596,9 @@ static struct aa_label *__aa_label_find(struct aa_labelset *ls,
  */
 struct aa_label *aa_label_find(struct aa_labelset *ls, struct aa_label *l)
 {
-	struct aa_label *label;
-	unsigned long flags;
-
-	AA_BUG(!ls);
 	AA_BUG(!l);
 
-	read_lock_irqsave(&ls->lock, flags);
-	label = aa_get_label(__aa_label_find(ls, l));
-	labelstats_inc(sread);
-	read_unlock_irqrestore(&ls->lock, flags);
-
-	return label;
+	return aa_label_vec_find(ls, l->ent, l->size);
 }
 
 /**
@@ -1406,9 +1467,11 @@ static int label_count_str_entries(const char *str)
  * Returns: the matching refcounted label if present
  *     else ERRPTR
  */
+#define LOCAL_VEC_ENTRIES 8
 struct aa_label *aa_label_parse(struct aa_label *base, char *str, gfp_t gfp)
 {
-	struct aa_label *l, *label;
+	struct aa_profile **vec, *tmp[LOCAL_VEC_ENTRIES];
+	struct aa_label *l;
 	int i, len;
 	char *split;
 
@@ -1416,37 +1479,39 @@ struct aa_label *aa_label_parse(struct aa_label *base, char *str, gfp_t gfp)
 	AA_BUG(!str);
 
 	len = label_count_str_entries(str);
-	label = aa_label_alloc(len, gfp);
-	if (!label)
-		return ERR_PTR(-ENOMEM);
+	if (len > LOCAL_VEC_ENTRIES) {
+		vec = kmalloc(sizeof(struct aa_profile *) * len, gfp);
+		if (!vec)
+			return ERR_PTR(-ENOMEM);
+	} else
+		vec = tmp;
 
 	for (split = strstr(str, "//&"), i = 0; split && i < len; i++) {
-		label->ent[i] = aa_fqlookupn_profile(base, str, split - str);
-		if (!label->ent[i])
+		vec[i] = aa_fqlookupn_profile(base, str, split - str);
+		if (!vec[i])
 			goto fail;
 		str = split + 3;
 		split = strstr(str, "//&");
 	}
-	label->ent[i] = aa_fqlookupn_profile(base, str, strlen(str));
-	if (!label->ent[i])
+	vec[i] = aa_fqlookupn_profile(base, str, strlen(str));
+	if (!vec[i])
 		goto fail;
 
-	i = aa_sort_and_merge_profiles(len, &label->ent[0]);
-	label->size -= i;
-	label->ent[label->size] = NULL;
+	i = aa_sort_and_merge_profiles(len, vec);
+	len -= i;
 
-	if (label_profiles_unconfined(label))
-		label->flags = FLAG_UNCONFINED;
-
-	l = aa_label_find(labels_set(label), label);
+	l = aa_label_vec_find(labels_set(base), vec, len);
 	if (!l)
-		goto fail;
-	aa_put_label(label);
+		l = ERR_PTR(-ENOENT);
+
+out:
+	if (vec != tmp)
+		kfree(vec);
 	return l;
 
 fail:
-	aa_label_free(label);
-	return ERR_PTR(-ENOENT);
+	l = ERR_PTR(-ENOENT);
+	goto out;
 }
 
 
