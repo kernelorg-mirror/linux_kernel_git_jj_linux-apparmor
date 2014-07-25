@@ -655,8 +655,7 @@ static int match_file(const void *p, struct file *file, unsigned fd)
 /* based on selinux's flush_unauthorized_files */
 void aa_inherit_files(const struct cred *cred, struct files_struct *files)
 {
-	struct aa_task_cxt *cxt = cred_cxt(cred);
-	struct aa_label *label = cxt->label;
+	struct aa_label *label = aa_get_newest_cred_label(cred);
 	struct file *devnull = NULL;
 	unsigned n;
 
@@ -665,7 +664,7 @@ void aa_inherit_files(const struct cred *cred, struct files_struct *files)
 	/* Revalidate access to inherited open files. */
 	n = iterate_fd(files, 0, match_file, label);
 	if (!n) /* none found? */
-		return;
+		goto out;
 
 	devnull = dentry_open(&aa_null, O_RDWR, cred);
 	if (IS_ERR(devnull))
@@ -677,4 +676,6 @@ printk("apparmor: replacing %d\n", n -1);
 	} while ((n = iterate_fd(files, n, match_file, label)) != 0);
 	if (devnull)
 		fput(devnull);
+out:
+	aa_put_label(label);
 }
