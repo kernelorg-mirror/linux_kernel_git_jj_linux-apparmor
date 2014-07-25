@@ -160,7 +160,10 @@ struct aa_label {
 #define labels_last(X) ((X)->ent[(X)->size - 1])
 #define labels_ns(X) (labels_last(X)->ns)
 #define labels_set(X) (&labels_ns(X)->labels)
-#define labels_profile(X) ((X)->ent[0])
+#define labels_profile(X) ({				\
+	AA_BUG(!label_isprofile(X));			\
+	container_of((X), struct aa_profile, label);	\
+})
 
 int aa_label_next_confined(struct aa_label *l, int i);
 
