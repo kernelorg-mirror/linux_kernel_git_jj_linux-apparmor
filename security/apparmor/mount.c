@@ -137,7 +137,7 @@ static int audit_mount(struct aa_profile *profile, int op, const char *name,
 		       const char *info, int error)
 {
 	int audit_type = AUDIT_APPARMOR_AUTO;
-	DEFINE_AUDIT_DATA(sa, LSM_AUDIT_DATA_NONE);
+	DEFINE_AUDIT_DATA(sa, LSM_AUDIT_DATA_NONE, op);
 
 	if (likely(!error)) {
 		u32 mask = perms->audit;
@@ -169,7 +169,6 @@ static int audit_mount(struct aa_profile *profile, int op, const char *name,
 				complain_error(error) : error;
 	}
 
-	aad(&sa)->op = op;
 	aad(&sa)->name = name;
 	aad(&sa)->mnt.src_name = src_name;
 	aad(&sa)->mnt.type = type;
@@ -229,7 +228,7 @@ static struct file_perms compute_mnt_perms(struct aa_dfa *dfa,
 	return perms;
 }
 
-static const char const *mnt_info_table[] = {
+static const char *mnt_info_table[] = {
 	"match succeeded",
 	"failed mntpnt match",
 	"failed srcname match",
@@ -274,7 +273,7 @@ static int do_match_mnt(struct aa_dfa *dfa, unsigned int start,
 		return 0;
 
 	/* only match data if not binary and the DFA flags data is expected */
-	if (data && !binary && (perms->allow & AA_CONT_MATCH)) {
+	if (data && !binary && (perms->allow & AA_MNT_CONT_MATCH)) {
 		state = aa_dfa_null_transition(dfa, state);
 		if (!state)
 			return 4;
@@ -335,26 +334,36 @@ static int path_flags(struct aa_profile *profile, struct path *path)
 int aa_remount(struct aa_label *label, struct path *path, unsigned long flags,
 	       void *data)
 {
-	struct aa_profile *profile = labels_profile(label);
+	struct aa_profile *profile;
 	struct file_perms perms = { };
 	const char *name, *info = NULL;
 	char *buffer = NULL;
-	int binary, error;
+	int binary, i, error;
 
 	binary = path->dentry->d_sb->s_type->fs_flags & FS_BINARY_MOUNTDATA;
 
-	error = aa_path_name(path, path_flags(profile, path), &buffer, &name,
-			     &info);
-	if (error)
-		goto audit;
+	get_buffers(buffer);
+	error = aa_path_name(path, path_flags(labels_profile(label), path),
+			     buffer, &name, &info);
+	if (error) {
+		error = audit_mount(labels_profile(label), OP_MOUNT, name, NULL,
+				    NULL, NULL, flags, data, AA_MAY_MOUNT,
+				    &perms, info, error);
+		goto out;
+	}
 
-	error = match_mnt(profile, name, NULL, NULL, flags, data, binary,
-			  &perms, &info);
+	label_for_each_confined(i, label, profile) {
+		error = match_mnt(profile, name, NULL, NULL, flags, data,
+				  binary, &perms, &info);
+		error = audit_mount(profile, OP_MOUNT, name, NULL, NULL, NULL,
+				    flags, data, AA_MAY_MOUNT, &perms, info,
+				    error);
+		if (error)
+			break;
+	}
 
-audit:
-	error = audit_mount(profile, OP_MOUNT, name, NULL, NULL, NULL, flags,
-			    data, AA_MAY_MOUNT, &perms, info, error);
-	kfree(buffer);
+out:
+	put_buffers(buffer);
 
 	return error;
 }
@@ -362,70 +371,92 @@ audit:
 int aa_bind_mount(struct aa_label *label, struct path *path,
 		  const char *dev_name, unsigned long flags)
 {
-	struct aa_profile *profile = labels_profile(label);
+	struct aa_profile *profile;
 	struct file_perms perms = { };
 	char *buffer = NULL, *old_buffer = NULL;
 	const char *name, *old_name = NULL, *info = NULL;
 	struct path old_path;
-	int error;
+	int i, error;
 
 	if (!dev_name || !*dev_name)
 		return -EINVAL;
 
 	flags &= MS_REC | MS_BIND;
 
-	error = aa_path_name(path, path_flags(profile, path), &buffer, &name,
+	get_buffers(buffer, old_buffer);
+	error = aa_path_name(path, path_flags(labels_profile(label), path), buffer, &name,
 			     &info);
 	if (error)
-		goto audit;
+		goto error;
 
 	error = kern_path(dev_name, LOOKUP_FOLLOW|LOOKUP_AUTOMOUNT, &old_path);
 	if (error)
-		goto audit;
+		goto error;
 
-	error = aa_path_name(&old_path, path_flags(profile, &old_path),
-			     &old_buffer, &old_name, &info);
+	error = aa_path_name(&old_path, path_flags(labels_profile(label),
+						   &old_path),
+			     old_buffer, &old_name, &info);
 	path_put(&old_path);
 	if (error)
-		goto audit;
+		goto error;
 
-	error = match_mnt(profile, name, old_name, NULL, flags, NULL, 0,
-			  &perms, &info);
+	label_for_each_confined(i, label, profile) {
+		error = match_mnt(profile, name, old_name, NULL, flags, NULL,
+				  0, &perms, &info);
+		error = audit_mount(profile, OP_MOUNT, name, old_name, NULL,
+				    NULL, flags, NULL, AA_MAY_MOUNT, &perms,
+				    info, error);
+		if (error)
+			break;
+	}
 
-audit:
-	error = audit_mount(profile, OP_MOUNT, name, old_name, NULL, NULL,
-			    flags, NULL, AA_MAY_MOUNT, &perms, info, error);
-	kfree(buffer);
-	kfree(old_buffer);
+out:
+	put_buffers(buffer, old_buffer);
 
 	return error;
+
+error:
+	error = audit_mount(labels_profile(label), OP_MOUNT, name, old_name,
+			    NULL, NULL, flags, NULL, AA_MAY_MOUNT, &perms,
+			    info, error);
+	goto out;
 }
 
 int aa_mount_change_type(struct aa_label *label, struct path *path,
 			 unsigned long flags)
 {
-	struct aa_profile *profile = labels_profile(label);
+	struct aa_profile *profile;
 	struct file_perms perms = { };
 	char *buffer = NULL;
 	const char *name, *info = NULL;
-	int error;
+	int i, error;
 
 	/* These are the flags allowed by do_change_type() */
 	flags &= (MS_REC | MS_SILENT | MS_SHARED | MS_PRIVATE | MS_SLAVE |
 		  MS_UNBINDABLE);
 
-	error = aa_path_name(path, path_flags(profile, path), &buffer, &name,
-			     &info);
-	if (error)
-		goto audit;
+	get_buffers(buffer);
+	error = aa_path_name(path, path_flags(labels_profile(label), path),
+			     buffer, &name, &info);
+	if (error) {
+		error = audit_mount(labels_profile(label), OP_MOUNT, name, NULL,
+				    NULL, NULL, flags, NULL, AA_MAY_MOUNT,
+				    &perms, info, error);
+		goto out;
+	}
 
-	error = match_mnt(profile, name, NULL, NULL, flags, NULL, 0, &perms,
-			  &info);
+	label_for_each_confined(i, label, profile) {
+		error = match_mnt(profile, name, NULL, NULL, flags, NULL, 0,
+				  &perms, &info);
+		error = audit_mount(profile, OP_MOUNT, name, NULL, NULL, NULL,
+				    flags, NULL, AA_MAY_MOUNT, &perms, info,
+				    error);
+		if (error)
+			break;
+	}
 
-audit:
-	error = audit_mount(profile, OP_MOUNT, name, NULL, NULL, NULL, flags,
-			    NULL, AA_MAY_MOUNT, &perms, info, error);
-	kfree(buffer);
+out:
+	put_buffers(buffer);
 
 	return error;
 }
@@ -433,55 +464,68 @@ audit:
 int aa_move_mount(struct aa_label *label, struct path *path,
 		  const char *orig_name)
 {
-	struct aa_profile *profile = labels_profile(label);
+	struct aa_profile *profile;
 	struct file_perms perms = { };
 	char *buffer = NULL, *old_buffer = NULL;
 	const char *name, *old_name = NULL, *info = NULL;
 	struct path old_path;
-	int error;
+	int i, error;
 
 	if (!orig_name || !*orig_name)
 		return -EINVAL;
 
-	error = aa_path_name(path, path_flags(profile, path), &buffer, &name,
-			     &info);
+	get_buffers(buffer, old_buffer);
+	error = aa_path_name(path, path_flags(labels_profile(label), path),
+			     buffer, &name, &info);
 	if (error)
-		goto audit;
+		goto error;
 
 	error = kern_path(orig_name, LOOKUP_FOLLOW, &old_path);
 	if (error)
-		goto audit;
+		goto error;
 
-	error = aa_path_name(&old_path, path_flags(profile, &old_path),
-			     &old_buffer, &old_name, &info);
+	error = aa_path_name(&old_path, path_flags(labels_profile(label),
+						   &old_path),
+			     old_buffer, &old_name, &info);
 	path_put(&old_path);
 	if (error)
-		goto audit;
+		goto error;
 
-	error = match_mnt(profile, name, old_name, NULL, MS_MOVE, NULL, 0,
-			  &perms, &info);
+	label_for_each_confined(i, label, profile) {
+		error = match_mnt(profile, name, old_name, NULL, MS_MOVE, NULL,
+				  0, &perms, &info);
+		error = audit_mount(profile, OP_MOUNT, name, old_name, NULL,
+				    NULL, MS_MOVE, NULL, AA_MAY_MOUNT, &perms,
+				    info, error);
+		if (error)
+			break;
+	}
 
-audit:
-	error = audit_mount(profile, OP_MOUNT, name, old_name, NULL, NULL,
-			    MS_MOVE, NULL, AA_MAY_MOUNT, &perms, info, error);
-	kfree(buffer);
-	kfree(old_buffer);
+out:
+	put_buffers(buffer, old_buffer);
 
 	return error;
+
+error:
+	error = audit_mount(labels_profile(label), OP_MOUNT, name, old_name,
+			    NULL, NULL, MS_MOVE, NULL, AA_MAY_MOUNT, &perms,
+			    info, error);
+	goto out;
 }
 
 int aa_new_mount(struct aa_label *label, const char *orig_dev_name,
 		 struct path *path, const char *type, unsigned long flags,
 		 void *data)
 {
-	struct aa_profile *profile = labels_profile(label);
+	struct aa_profile *profile;
 	struct file_perms perms = { };
 	char *buffer = NULL, *dev_buffer = NULL;
 	const char *name = NULL, *dev_name = NULL, *info = NULL;
 	int binary = 1;
-	int error;
+	int i, error;
 
 	dev_name = orig_dev_name;
+	get_buffers(buffer, dev_buffer);
 	if (type) {
 		int requires_dev;
 		struct file_system_type *fstype = get_fs_type(type);
@@ -502,65 +546,87 @@ int aa_new_mount(struct aa_label *label, const char *orig_dev_name,
 
 			error = kern_path(dev_name, LOOKUP_FOLLOW, &dev_path);
 			if (error)
-				goto audit;
+				goto error;
 
 			error = aa_path_name(&dev_path,
-					     path_flags(profile, &dev_path),
-					     &dev_buffer, &dev_name, &info);
+					     path_flags(labels_profile(label),
+							&dev_path),
+					     dev_buffer, &dev_name, &info);
 			path_put(&dev_path);
 			if (error)
-				goto audit;
+				goto error;
 		}
 	}
 
-	error = aa_path_name(path, path_flags(profile, path), &buffer, &name,
-			     &info);
+	error = aa_path_name(path, path_flags(labels_profile(label), path),
+			     buffer, &name, &info);
 	if (error)
-		goto audit;
+		goto error;
 
-	error = match_mnt(profile, name, dev_name, type, flags, data, binary,
-			  &perms, &info);
+	label_for_each_confined(i, label, profile) {
+		error = match_mnt(profile, name, dev_name, type, flags, data,
+				  binary, &perms, &info);
+		error = audit_mount(profile, OP_MOUNT, name, dev_name, type,
+				    NULL, flags, data, AA_MAY_MOUNT, &perms,
+				    info, error);
+		if (error)
+			break;
+	}
 
-audit:
-	error = audit_mount(profile, OP_MOUNT, name,  dev_name, type, NULL,
-			    flags, data, AA_MAY_MOUNT, &perms, info, error);
-	kfree(buffer);
-	kfree(dev_buffer);
+cleanup:
+	put_buffers(buffer, dev_buffer);
 
 out:
 	return error;
 
+error:
+	error = audit_mount(labels_profile(label), OP_MOUNT, name,  dev_name,
+			    type, NULL, flags, data, AA_MAY_MOUNT, &perms, info,
+			    error);
+	goto cleanup;
 }
 
 int aa_umount(struct aa_label *label, struct vfsmount *mnt, int flags)
 {
-	struct aa_profile *profile = labels_profile(label);
+	struct aa_profile *profile;
 	struct file_perms perms = { };
 	char *buffer = NULL;
 	const char *name, *info = NULL;
-	int error;
+	int i, error;
 
 	struct path path = { mnt, mnt->mnt_root };
-	error = aa_path_name(&path, path_flags(profile, &path), &buffer, &name,
-			     &info);
-	if (error)
-		goto audit;
-
-	if (!error && profile->policy.dfa) {
-		unsigned int state;
-		state = aa_dfa_match(profile->policy.dfa,
-				     profile->policy.start[AA_CLASS_MOUNT],
-				     name);
-		perms = compute_mnt_perms(profile->policy.dfa, state);
+	get_buffers(buffer);
+	error = aa_path_name(&path, path_flags(labels_profile(label), &path),
+			     buffer, &name, &info);
+	if (error) {
+		error = audit_mount(labels_profile(label), OP_UMOUNT, name,
+				    NULL, NULL, NULL, 0, NULL, AA_MAY_UMOUNT,
+				    &perms, info, error);
+		goto out;
 	}
 
-	if (AA_MAY_UMOUNT & ~perms.allow)
-		error = -EACCES;
+	label_for_each_confined(i, label, profile) {
+		if (profile->policy.dfa) {
+			unsigned int state;
+			state = aa_dfa_match(profile->policy.dfa,
+					  profile->policy.start[AA_CLASS_MOUNT],
+					  name);
+			perms = compute_mnt_perms(profile->policy.dfa, state);
+			if (AA_MAY_UMOUNT & ~perms.allow)
+				error = -EACCES;
+		} else
+			error = -EACCES;
+		error = audit_mount(profile, OP_UMOUNT, name, NULL, NULL, NULL,
+				    0, NULL, AA_MAY_UMOUNT, &perms, info,
+				    error);
+		if (error)
+			break;
 
-audit:
-	error = audit_mount(profile, OP_UMOUNT, name, NULL, NULL, NULL, 0,
-			    NULL, AA_MAY_UMOUNT, &perms, info, error);
-	kfree(buffer);
+		memset(&perms, 0, sizeof(perms));
+	}
+
+out:
+	put_buffers(buffer);
 
 	return error;
 }
@@ -568,51 +634,68 @@ audit:
 int aa_pivotroot(struct aa_label *label, struct path *old_path,
 		  struct path *new_path)
 {
-	struct aa_profile *profile = labels_profile(label);
+	struct aa_profile *profile;
 	struct file_perms perms = { };
 	struct aa_profile *target = NULL;
 	char *old_buffer = NULL, *new_buffer = NULL;
 	const char *old_name, *new_name = NULL, *info = NULL;
-	int error;
+	int i, error;
 
-	error = aa_path_name(old_path, path_flags(profile, old_path),
-			     &old_buffer, &old_name, &info);
+	get_buffers(old_buffer, new_buffer);
+	error = aa_path_name(old_path, path_flags(labels_profile(label),
+						  old_path),
+			     old_buffer, &old_name, &info);
 	if (error)
-		goto audit;
+		goto error;
 
-	error = aa_path_name(new_path, path_flags(profile, new_path),
-			     &new_buffer, &new_name, &info);
+	error = aa_path_name(new_path, path_flags(labels_profile(label),
+						  new_path),
+			     new_buffer, &new_name, &info);
 	if (error)
-		goto audit;
+		goto error;
 
-	if (profile->policy.dfa) {
-		unsigned int state;
-		state = aa_dfa_match(profile->policy.dfa,
-				     profile->policy.start[AA_CLASS_MOUNT],
-				     new_name);
-		state = aa_dfa_null_transition(profile->policy.dfa, state);
-		state = aa_dfa_match(profile->policy.dfa, state, old_name);
-		perms = compute_mnt_perms(profile->policy.dfa, state);
+	label_for_each(i, label, profile) {
+		/* TODO: actual domain transition computation for multiple
+		 *  profiles
+		 */
+		if (profile->policy.dfa) {
+			unsigned int state;
+			state = aa_dfa_match(profile->policy.dfa,
+					     profile->policy.start[AA_CLASS_MOUNT],
+					     new_name);
+			state = aa_dfa_null_transition(profile->policy.dfa, state);
+			state = aa_dfa_match(profile->policy.dfa, state, old_name);
+			perms = compute_mnt_perms(profile->policy.dfa, state);
+
+			if (AA_MAY_PIVOTROOT & perms.allow) {
+				if ((perms.xindex & AA_X_TYPE_MASK) == AA_X_TABLE) {
+					target = x_table_lookup(profile, perms.xindex);
+					if (!target)
+						error = -ENOENT;
+					else
+						error = aa_replace_current_label(&target->label);
+				}
+			}
+		} else
+			error = -EACCES;
+
+		error = audit_mount(profile, OP_PIVOTROOT, new_name, old_name,
+				    NULL, target ? target->base.name : NULL,
+				    0, NULL, AA_MAY_PIVOTROOT, &perms, info,
+				    error);
+		if (error)
+			break;
 	}
 
-	if (AA_MAY_PIVOTROOT & perms.allow) {
-		if ((perms.xindex & AA_X_TYPE_MASK) == AA_X_TABLE) {
-			target = x_table_lookup(profile, perms.xindex);
-			if (!target)
-				error = -ENOENT;
-			else
-				error = aa_replace_current_label(&target->label);
-		}
-	} else
-		error = -EACCES;
-
-audit:
-	error = audit_mount(profile, OP_PIVOTROOT, new_name, old_name, NULL,
-			    target ? target->base.name : NULL, 0, NULL,
-			    AA_MAY_PIVOTROOT, &perms, info, error);
+out:
 	aa_put_profile(target);
-	kfree(old_buffer);
-	kfree(new_buffer);
+	put_buffers(old_buffer, new_buffer);
 
 	return error;
+
+error:
+	error = audit_mount(labels_profile(label), OP_PIVOTROOT, new_name,
+			    old_name, NULL, target ? target->base.name : NULL,
+			    0, NULL, AA_MAY_PIVOTROOT, &perms, info, error);
+	goto out;
 }
