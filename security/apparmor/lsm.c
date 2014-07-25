@@ -248,7 +248,7 @@ static int common_perm_rm(int op, struct path *dir,
 	struct inode *inode = dentry->d_inode;
 	struct path_cond cond = { };
 
-	if (!inode || !dir->mnt || !mediated_filesystem(inode))
+	if (!inode || !dir->mnt || !path_mediated_fs(inode))
 		return 0;
 
 	cond.uid = inode->i_uid;
@@ -272,7 +272,7 @@ static int common_perm_create(int op, struct path *dir, struct dentry *dentry,
 {
 	struct path_cond cond = { current_fsuid(), mode };
 
-	if (!dir->mnt || !mediated_filesystem(dir->dentry->d_inode))
+	if (!dir->mnt || !path_mediated_fs(dir->dentry->d_inode))
 		return 0;
 
 	return common_perm_dir_dentry(op, dir, dentry, mask, &cond);
@@ -303,7 +303,7 @@ static int apparmor_path_mknod(struct path *dir, struct dentry *dentry,
 
 static int apparmor_path_truncate(struct path *path)
 {
-	if (!path->mnt || !mediated_filesystem(path->dentry->d_inode))
+	if (!path->mnt || !path_mediated_fs(path->dentry->d_inode))
 		return 0;
 
 	return common_perm_cond(OP_TRUNC, path, MAY_WRITE | AA_MAY_META_WRITE);
@@ -322,7 +322,7 @@ static int apparmor_path_link(struct dentry *old_dentry, struct path *new_dir,
 	struct aa_label *label;
 	int error = 0;
 
-	if (!mediated_filesystem(old_dentry->d_inode))
+	if (!path_mediated_fs(old_dentry->d_inode))
 		return 0;
 
 	label = aa_current_label();
@@ -337,7 +337,7 @@ static int apparmor_path_rename(struct path *old_dir, struct dentry *old_dentry,
 	struct aa_label *label;
 	int error = 0;
 
-	if (!mediated_filesystem(old_dentry->d_inode))
+	if (!path_mediated_fs(old_dentry->d_inode))
 		return 0;
 
 	label = aa_current_label();
@@ -363,7 +363,7 @@ static int apparmor_path_rename(struct path *old_dir, struct dentry *old_dentry,
 
 static int apparmor_path_chmod(struct path *path, umode_t mode)
 {
-	if (!mediated_filesystem(path->dentry->d_inode))
+	if (!path_mediated_fs(path->dentry->d_inode))
 		return 0;
 
 	return common_perm_cond(OP_CHMOD, path, AA_MAY_CHMOD | mask_mode_t(mode));
@@ -371,7 +371,7 @@ static int apparmor_path_chmod(struct path *path, umode_t mode)
 
 static int apparmor_path_chown(struct path *path, kuid_t uid, kgid_t gid)
 {
-	if (!mediated_filesystem(path->dentry->d_inode))
+	if (!path_mediated_fs(path->dentry->d_inode))
 		return 0;
 
 	return common_perm_cond(OP_CHOWN, path, AA_MAY_CHOWN);
@@ -379,7 +379,7 @@ static int apparmor_path_chown(struct path *path, kuid_t uid, kgid_t gid)
 
 static int apparmor_inode_getattr(struct vfsmount *mnt, struct dentry *dentry)
 {
-	if (!mediated_filesystem(dentry->d_inode))
+	if (!path_mediated_fs(dentry->d_inode))
 		return 0;
 
 	return common_perm_mnt_dentry(OP_GETATTR, mnt, dentry,
@@ -392,7 +392,7 @@ static int apparmor_file_open(struct file *file, const struct cred *cred)
 	struct aa_label *label;
 	int error = 0;
 
-	if (!mediated_filesystem(file_inode(file)))
+	if (!path_mediated_fs(file_inode(file)))
 		return 0;
 
 	/* If in exec, permission is handled by bprm hooks.
