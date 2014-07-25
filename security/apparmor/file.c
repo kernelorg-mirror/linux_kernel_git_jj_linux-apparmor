@@ -594,11 +594,11 @@ int aa_file_perm(int op, struct aa_label *label, struct file *file,
 	{
 char *s = aa_imode_name(file_inode(file)->i_mode);
 
-printk("apparmor: revalidation of non-mediated file mnt? %p (%s) label: ", file->f_path.mnt, s);
+ printk("apparmor: revalidation of non-mediated file. denied 0x%x mnt? %p (%s) label: (%p)", denied, file->f_path.mnt, s, label);
 aa_label_printk(labels_ns(label), label, false, GFP_ATOMIC);
-printk(" flabel: ");
+ printk(" flabel: (%p)", flabel);
 aa_label_printk(labels_ns(flabel), flabel, false, GFP_ATOMIC);
-printk("\n");
+ printk(" is_subset %d\n", aa_label_is_subset(flabel, label));
 	}
 	if (error)
 		goto done;
