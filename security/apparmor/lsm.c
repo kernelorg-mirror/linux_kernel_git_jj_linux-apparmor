@@ -346,11 +346,15 @@ static int apparmor_path_rename(struct path *old_dir, struct dentry *old_dentry,
 
 static int apparmor_path_chmod(struct path *path, umode_t mode)
 {
+	struct path_cond cond =  { path->dentry->d_inode->i_uid,
+				   path->dentry->d_inode->i_mode
+	};
+
 	if (!mediated_filesystem(path->dentry->d_inode))
 		return 0;
 
-	return common_perm_mnt_dentry(OP_CHMOD, path->mnt, path->dentry,
-				      AA_MAY_CHMOD | mask_mode_t(mode));
+	return common_perm(OP_CHMOD, path, AA_MAY_CHMOD | mask_mode_t(mode),
+			   &cond);
 }
 
 static int apparmor_path_chown(struct path *path, kuid_t uid, kgid_t gid)
