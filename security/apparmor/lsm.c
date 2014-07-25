@@ -182,9 +182,10 @@ static int common_perm(int op, struct path *path, u32 mask,
 	struct aa_label *label;
 	int error = 0;
 
-	label = __aa_current_label();
+	label = __aa_get_current_label();
 	if (!unconfined(label))
 		error = aa_path_perm(op, label, path, 0, mask, cond);
+	__aa_put_current_label(label);
 
 	return error;
 }
@@ -449,7 +450,7 @@ static int common_file_perm(int op, struct file *file, u32 mask)
 	    !mediated_filesystem(file_inode(file)))
 		return 0;
 
-	label = __aa_current_label();
+	label = __aa_get_current_label();
 
 	/* revalidate access, if task is unconfined, or the cached cred
 	 * doesn't match or if the request is for more permissions than
@@ -461,6 +462,7 @@ static int common_file_perm(int op, struct file *file, u32 mask)
 	if (!unconfined(label) && !unconfined(flabel) &&
 	    ((flabel != label) || (mask & ~fcxt->allow)))
 		error = aa_file_perm(op, label, file, mask);
+	__aa_put_current_label(label);
 
 	return error;
 }
@@ -620,11 +622,12 @@ fail:
 static int apparmor_task_setrlimit(struct task_struct *task,
 		unsigned int resource, struct rlimit *new_rlim)
 {
-	struct aa_label *label = __aa_current_label();
+	struct aa_label *label = __aa_get_current_label();
 	int error = 0;
 
 	if (!unconfined(label))
 		error = aa_task_setrlimit(label, task, resource, new_rlim);
+	__aa_put_current_label(label);
 
 	return error;
 }

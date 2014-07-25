@@ -140,6 +140,37 @@ static inline struct aa_label *__aa_current_label(void)
 }
 
 /**
+ * __aa_get_current_label - find newest version of the current tasks label
+ *
+ * Returns: newest version of confining label (NOT NULL)
+ *
+ * This fn will not update the tasks cred, so it is safe inside of locks
+ *
+ * The returned reference must be put with __aa_put_current_label()
+ */
+static inline struct aa_label *__aa_get_current_label(void)
+{
+	struct aa_label *l = __aa_current_label();
+
+	if (label_invalid(l))
+		l = aa_get_newest_label(l);
+	return l;
+}
+
+/**
+ * __aa_put_current_label - put a reference found with aa_get_current_label
+ * @label: label reference to put
+ *
+ * Should only be used with a reference obtained with __aa_get_current_label
+ * and never used in situations where the task cred may be updated
+ */
+static inline void __aa_put_current_label(struct aa_label *label)
+{
+	if (label != __aa_current_label())
+		aa_put_label(label);
+}
+
+/**
  * aa_current_label - find the current tasks confining label and update it
  *
  * Returns: up to date confining label or the ns unconfined label (NOT NULL)
