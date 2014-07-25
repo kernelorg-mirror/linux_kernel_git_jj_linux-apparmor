@@ -41,6 +41,7 @@ extern bool aa_g_lock_policy;
 extern bool aa_g_logsyscall;
 extern bool aa_g_paranoid_load;
 extern unsigned int aa_g_path_max;
+extern bool aa_g_unconfined_init;
 
 /*
  * DEBUG remains global (no per profile flag) since it is mostly used in sysctl

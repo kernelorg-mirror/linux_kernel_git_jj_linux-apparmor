@@ -1095,6 +1095,10 @@ static int __init aa_create_aafs(void)
 	if (error)
 		goto error;
 
+	if (!aa_g_unconfined_init) {
+		/* TODO: add default profile to apparmorfs */
+	}
+
 	/* TODO: add support for apparmorfs_null and apparmorfs_mnt */
 
 	/* Report that AppArmor fs is enabled */

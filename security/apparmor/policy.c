@@ -722,6 +722,29 @@ fail:
 	return NULL;
 }
 
+/**
+ * aa_setup_default_profile - create the initial default profile
+ */
+struct aa_profile *aa_setup_default_profile(void)
+{
+	struct aa_profile *profile = aa_alloc_profile("default");
+	if (!profile)
+		return NULL;
+
+	/* the default profile pretends to be unconfined until it is replaced */
+	profile->flags = PFLAG_IX_ON_NAME_ERROR;
+	profile->mode = APPARMOR_UNCONFINED;
+
+	profile->ns = aa_get_namespace(root_ns);
+
+	/* replacedby being set needed by fs interface */
+	rcu_assign_pointer(profile->replacedby->profile,
+			   aa_get_profile(profile));
+	__list_add_profile(&root_ns->base.profiles, profile);
+
+	return profile;
+}
+
 /* TODO: profile accounting - setup in remove */
 
 /**

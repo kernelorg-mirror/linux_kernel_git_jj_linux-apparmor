@@ -745,6 +745,11 @@ module_param_named(paranoid_load, aa_g_paranoid_load, aabool,
 static bool apparmor_enabled = CONFIG_SECURITY_APPARMOR_BOOTPARAM_VALUE;
 module_param_named(enabled, apparmor_enabled, bool, S_IRUGO);
 
+/* Boot time to set use of default or unconfined as initial profile */
+bool aa_g_unconfined_init = CONFIG_SECURITY_APPARMOR_UNCONFINED_INIT;
+module_param_named(unconfined, aa_g_unconfined_init, bool, S_IRUSR);
+
+
 static int __init apparmor_enabled_setup(char *str)
 {
 	unsigned long enabled;
@@ -873,8 +878,6 @@ static int param_set_mode(const char *val, struct kernel_param *kp)
 
 /**
  * set_init_cxt - set a task context and profile on the first task.
- *
- * TODO: allow setting an alternate profile than unconfined
  */
 static int __init set_init_cxt(void)
 {
@@ -885,7 +888,15 @@ static int __init set_init_cxt(void)
 	if (!cxt)
 		return -ENOMEM;
 
-	cxt->profile = aa_get_profile(root_ns->unconfined);
+	if (!aa_g_unconfined_init) {
+		cxt->profile = aa_setup_default_profile();
+		if (!cxt->profile) {
+			aa_free_task_context(cxt);
+			return -ENOMEM;
+		}
+		/* fs setup of default is done in aa_create_aafs() */
+	} else
+		cxt->profile = aa_get_profile(root_ns->unconfined);
 	cred_cxt(cred) = cxt;
 
 	return 0;
