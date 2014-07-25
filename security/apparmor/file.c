@@ -28,10 +28,10 @@ struct file_perms nullperms;
 
 static u32 map_mask_to_chr_mask(u32 mask)
 {
-	u32 m = mask & AA_PERM_CHR_MASK;
-	if (mask & AA_MAY_META_READ)
+	u32 m = mask & PERMS_CHR_MASK;
+	if (mask & AA_MAY_GETATTR)
 		m |= MAY_READ;
-	if (mask & (AA_MAY_META_WRITE | AA_MAY_CHMOD | AA_MAY_CHOWN))
+	if (mask & (AA_MAY_SETATTR | AA_MAY_CHMOD | AA_MAY_CHOWN))
 		m |= MAY_WRITE;
 
 	return m;
@@ -46,7 +46,7 @@ static void audit_file_mask(struct audit_buffer *ab, u32 mask)
 {
 	char str[10];
 
-	aa_perm_mask_to_chr(map_mask_to_chr_mask(mask), str);
+	aa_perm_mask_to_str(str, map_mask_to_chr_mask(mask));
 	audit_log_string(ab, str);
 }
 
@@ -187,9 +187,9 @@ static u32 map_old_perms(u32 old)
 {
 	u32 new = old & 0xf;
 	if (old & MAY_READ)
-		new |= AA_MAY_META_READ;
+		new |= AA_MAY_GETATTR;
 	if (old & MAY_WRITE)
-		new |= AA_MAY_META_WRITE | AA_MAY_CREATE | AA_MAY_DELETE |
+		new |= AA_MAY_SETATTR | AA_MAY_CREATE | AA_MAY_DELETE |
 			AA_MAY_CHMOD | AA_MAY_CHOWN;
 	if (old & 0x10)
 		new |= AA_MAY_LINK;
@@ -238,7 +238,7 @@ static struct file_perms compute_perms(struct aa_dfa *dfa, unsigned int state,
 		perms.quiet = map_old_perms(dfa_other_quiet(dfa, state));
 		perms.xindex = dfa_other_xindex(dfa, state);
 	}
-	perms.allow |= AA_MAY_META_READ;
+	perms.allow |= AA_MAY_GETATTR;
 
 	/* change_profile wasn't determined by ownership in old mapping */
 	if (ACCEPT_TABLE(dfa)[state] & 0x80000000)

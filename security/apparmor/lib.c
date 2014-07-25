@@ -173,11 +173,11 @@ void aa_str_kref(struct kref *kref)
 }
 
 /**
- * aa_perm_mask_to_chr - convert a perm mask to its short string
- * @mask: permission mask to convert
+ * aa_perm_mask_to_str - convert a perm mask to its short string
  * @str: character buffer to store string in (at least 10 characters)
+ * @mask: permission mask to convert
  */
-void aa_perm_mask_to_chr(u32 mask, char *str)
+void aa_perm_mask_to_str(char *str, u32 mask)
 {
 	if (mask & AA_EXEC_MMAP)
 		*str++ = 'm';
@@ -200,29 +200,80 @@ void aa_perm_mask_to_chr(u32 mask, char *str)
 	*str = '\0';
 }
 
+static const char *perm_names[] = {
+	"exec",
+	"write",
+	"read",
+	"append",
+
+	"create",
+	"delete",
+	"open",
+	"rename",
+
+	"setattr",
+	"getattr",
+	"setcred",
+	"getcred",
+
+	"chmod",
+	"chown",
+	"chgrp",
+	"lock",
+
+	"mmap",
+	"mprot",
+	"link",
+	"snapshot",
+
+	"unknown",
+	"unknown",
+	"unknown",
+	"unknown",
+
+	"unknown",
+	"unknown",
+	"unknown",
+	"unknown",
+
+	"stack",
+	"change_onexec",
+	"change_profile",
+	"change_hat",
+};
+
+void aa_audit_perm_names(struct audit_buffer *ab, const char **names, u32 mask)
+{
+	const char *fmt = "%s";
+	unsigned int i, perm = 1;
+	bool prev = false;
+	for (i = 0; i < 32; perm <<= 1, i++) {
+		if (mask & perm) {
+			if (!prev) {
+				prev = true;
+				fmt = " %s";
+			}
+			audit_log_format(ab, fmt, names[i]);
+		}
+	}
+}
+
 void aa_audit_perm_mask(struct audit_buffer *ab, u32 mask)
 {
 	char str[10];
 
-	aa_perm_mask_to_chr(mask, str);
-
-	audit_log_format(ab, "\"%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s\"", str,
-			 mask & AA_MAY_OPEN ? " open" : "",
-			 mask & AA_MAY_RENAME ? " rename" : "",
-			 mask & AA_MAY_META_WRITE ? " metawrite" : "",
-			 mask & AA_MAY_META_READ ? " metaread" : "",
-			 mask & AA_MAY_GET_SECURITY ? " getsecurity" : "",
-			 mask & AA_MAY_SET_SECURITY ? " setsecurity" : "",
-			 mask & AA_MAY_CHMOD ? " chmod" : "",
-			 mask & AA_MAY_CHOWN ? " chown" : "",
-			 mask & AA_MAY_CHGRP ? " chgrp" : "",
-			 mask & AA_MAY_MPROT_WX ? " mprot_wx" : "",
-			 mask & AA_MAY_MPROT_XW ? " mprot_xw" : "",
-			 mask & AA_MAY_SNAPSHOT ? " snapshot" : "",
-			 mask & AA_MAY_STACK ? " stack" : "",
-			 mask & AA_MAY_ONEXEC ? " onexec" : "",
-			 mask & AA_MAY_CHANGE_PROFILE ? " change_profile" : "",
-			 mask & AA_MAY_CHANGEHAT ? " change_hat" : "");
+	audit_log_format(ab, "\"");
+	if (mask & PERMS_CHR_MASK) {
+		aa_perm_mask_to_str(str, mask);
+		mask &= ~PERMS_CHR_MASK;
+		audit_log_format(ab, (mask & PERMS_NAME_MASK) ? " %s" : "%s",
+				 str);
+		if (mask & PERMS_NAME_MASK)
+			audit_log_format(ab, " ");
+	}
+	if (mask & PERMS_NAME_MASK)
+		aa_audit_perm_names(ab, perm_names, mask);
+	audit_log_format(ab, "\"");
 }
 
 /**
@@ -274,6 +325,10 @@ void aa_apply_modes_to_perms(struct aa_profile *profile, struct aa_perms *perms)
 		perms->kill = ALL_PERMS_MASK;
 	else if (COMPLAIN_MODE(profile))
 		perms->complain = ALL_PERMS_MASK;
+/* TODO:
+	else if (PROMPT_MODE(profile))
+		perms->prompt = ALL_PERMS_MASK;
+*/
 }
 
 void aa_compute_perms(struct aa_dfa *dfa, unsigned int state,
@@ -283,6 +338,7 @@ void aa_compute_perms(struct aa_dfa *dfa, unsigned int state,
 	perms->kill = perms->stop = 0;
 	perms->complain = perms->cond = 0;
 	perms->hide = 0;
+	perms->prompt = 0;
 	perms->allow = dfa_user_allow(dfa, state);
 	perms->audit = dfa_user_audit(dfa, state);
 	perms->quiet = dfa_user_quiet(dfa, state);
@@ -304,6 +360,7 @@ void aa_perms_accum_raw(struct aa_perms *accum, struct aa_perms *addend)
 	accum->complain |= addend->complain & ~addend->allow & ~addend->deny;
 	accum->cond |= addend->cond & ~addend->allow & ~addend->deny;
 	accum->hide &= addend->hide & ~addend->allow;
+	accum->prompt |= addend->prompt & ~addend->allow & ~addend->deny;
 }
 
 /**
@@ -322,6 +379,7 @@ void aa_perms_accum(struct aa_perms *accum, struct aa_perms *addend)
 	accum->complain |= addend->complain & ~accum->allow & ~accum->deny;
 	accum->cond |= addend->cond & ~addend->allow & ~addend->deny;
 	accum->hide &= addend->hide & ~accum->allow;
+	accum->prompt |= addend->prompt & ~addend->allow & ~addend->deny;
 }
 
 void aa_profile_match_label(struct aa_profile *profile, const char *label,

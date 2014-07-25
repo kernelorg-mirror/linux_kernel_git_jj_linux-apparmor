@@ -329,7 +329,7 @@ static int apparmor_path_truncate(struct path *path)
 	if (!path->mnt || !path_mediated_fs(path->dentry->d_inode))
 		return 0;
 
-	return common_perm_cond(OP_TRUNC, path, MAY_WRITE | AA_MAY_META_WRITE);
+	return common_perm_cond(OP_TRUNC, path, MAY_WRITE | AA_MAY_SETATTR);
 }
 
 static int apparmor_path_symlink(struct path *dir, struct dentry *dentry,
@@ -372,12 +372,12 @@ static int apparmor_path_rename(struct path *old_dir, struct dentry *old_dentry,
 		};
 
 		error = aa_path_perm(OP_RENAME_SRC, label, &old_path, 0,
-				     MAY_READ | AA_MAY_META_READ | MAY_WRITE |
-				     AA_MAY_META_WRITE | AA_MAY_DELETE,
+				     MAY_READ | AA_MAY_GETATTR | MAY_WRITE |
+				     AA_MAY_SETATTR | AA_MAY_DELETE,
 				     &cond);
 		if (!error)
 			error = aa_path_perm(OP_RENAME_DEST, label, &new_path,
-					     0, MAY_WRITE | AA_MAY_META_WRITE |
+					     0, MAY_WRITE | AA_MAY_SETATTR |
 					     AA_MAY_CREATE, &cond);
 
 	}
@@ -406,7 +406,7 @@ static int apparmor_inode_getattr(struct vfsmount *mnt, struct dentry *dentry)
 		return 0;
 
 	return common_perm_mnt_dentry(OP_GETATTR, mnt, dentry,
-				      AA_MAY_META_READ);
+				      AA_MAY_GETATTR);
 }
 
 static int apparmor_file_open(struct file *file, const struct cred *cred)

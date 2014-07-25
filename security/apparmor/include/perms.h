@@ -27,10 +27,10 @@
 #define AA_MAY_OPEN		0x0040
 #define AA_MAY_RENAME		0x0080		/* pair */
 
-#define AA_MAY_META_WRITE	0x0100
-#define AA_MAY_META_READ	0x0200
-#define AA_MAY_GET_SECURITY	0x0400
-#define AA_MAY_SET_SECURITY	0x0800
+#define AA_MAY_SETATTR		0x0100		/* meta write */
+#define AA_MAY_GETATTR		0x0200		/* meta read */
+#define AA_MAY_SETCRED		0x0400		/* security cred/attr */
+#define AA_MAY_GETCRED		0x0800
 
 #define AA_MAY_CHMOD		0x1000		/* pair */
 #define AA_MAY_CHOWN		0x2000		/* pair */
@@ -38,14 +38,9 @@
 #define AA_MAY_LOCK		0x8000		/* LINK_SUBSET overlaid */
 
 #define AA_EXEC_MMAP		0x00010000
-#define AA_MAY_MPROT_WX		0x00020000
-#define AA_MAY_MPROT_XW		0x00040000
-#define AA_MAY_LINK		0x00080000	/* pair */
-
-#define AA_MAY_SNAPSHOT		0x00100000	/* pair */
-#define AA_MAY_BIND		0x00200000
-#define AA_MAY_ACCEPT		0x00400000
-#define AA_MAY_LISTEN		0x00800000
+#define AA_MAY_MPROT		0x00020000	/* extend conditions */
+#define AA_MAY_LINK		0x00040000	/* pair */
+#define AA_MAY_SNAPSHOT		0x00080000	/* pair */
 
 #define AA_MAY_DELEGATE
 #define AA_CONT_MATCH		0x08000000
@@ -57,16 +52,17 @@
 
 #define AA_LINK_SUBSET		AA_MAY_LOCK	/* overlaid */
 
-#define AA_MAY_CONNECT		AA_MAY_OPEN
-#define AA_MAY_SEND		AA_MAY_WRITE
-#define AA_MAY_RECEIVE		AA_MAY_READ
-#define AA_MAY_XATTR_READ	AA_MAY_READ	/* stored on pair like link */
-#define AA_MAY_XATTR_WRITE	AA_MAY_WRITE	/* stored on pair like link */
 
+#define PERMS_CHR_MASK (MAY_READ | MAY_WRITE | AA_MAY_CREATE |		\
+			AA_MAY_DELETE | AA_MAY_LINK | AA_MAY_LOCK |	\
+			AA_MAY_EXEC | AA_EXEC_MMAP | AA_MAY_APPEND)
 
-#define AA_PERM_CHR_MASK (MAY_READ | MAY_WRITE | AA_MAY_CREATE |	\
-			  AA_MAY_DELETE | AA_MAY_LINK | AA_MAY_LOCK |	\
-			  AA_MAY_EXEC | AA_EXEC_MMAP)
+#define PERMS_NAME_MASK (PERMS_CHR_MASK | AA_MAY_OPEN | AA_MAY_RENAME |     \
+			 AA_MAY_SETATTR | AA_MAY_GETATTR | AA_MAY_SETCRED | \
+			 AA_MAY_GETCRED | AA_MAY_CHMOD | AA_MAY_CHOWN |     \
+			 AA_MAY_CHGRP | AA_MAY_MPROT | AA_MAY_SNAPSHOT |    \
+			 AA_MAY_STACK | AA_MAY_ONEXEC |			    \
+			 AA_MAY_CHANGE_PROFILE | AA_MAY_CHANGEHAT)
 
 
 struct aa_perms {
@@ -82,10 +78,10 @@ struct aa_perms {
 	u32 cond;	/* set only when ~allow and ~deny */
 
 	u32 hide;	/* set only when  ~allow | deny */
+	u32 prompt;	/* accumulates only used when ~allow & ~deny */
 
 	/* Reserved:
 	 * u32 subtree;	/ * set only when allow is set * /
-	 * u32 prompt;	/ * accumulates only used when ~allow & ~deny * /
 	 */
 };
 
@@ -135,7 +131,8 @@ struct aa_perms {
 
 #define FINAL_CHECK true
 
-void aa_perm_mask_to_chr(u32 mask, char *str);
+void aa_perm_mask_to_str(char *str, u32 mask);
+void aa_audit_perm_names(struct audit_buffer *ab, const char **names, u32 mask);
 void aa_audit_perm_mask(struct audit_buffer *ab, u32 mask);
 void aa_apply_modes_to_perms(struct aa_profile *profile,
 			     struct aa_perms *perms);
