@@ -193,10 +193,10 @@ static int common_perm(int op, struct path *path, u32 mask,
 	struct aa_label *label;
 	int error = 0;
 
-	label = aa_get_current_label();
+	label = aa_begin_current_label();
 	if (!unconfined(label))
 		error = aa_path_perm(op, label, path, 0, mask, cond);
-	aa_put_current_label(label);
+	aa_end_current_label(label);
 
 	return error;
 }
@@ -463,9 +463,9 @@ static int common_file_perm(int op, struct file *file, u32 mask)
 	struct aa_label *label;
 	int error = 0;
 
-	label = aa_get_current_label();
+	label = aa_begin_current_label();
 	error = aa_file_perm(op, label, file, mask);
-	aa_put_current_label(label);
+	aa_end_current_label(label);
 
 	return error;
 }
@@ -711,12 +711,12 @@ void apparmor_bprm_committed_creds(struct linux_binprm *bprm)
 static int apparmor_task_setrlimit(struct task_struct *task,
 		unsigned int resource, struct rlimit *new_rlim)
 {
-	struct aa_label *label = aa_get_current_label();
+	struct aa_label *label = aa_begin_current_label();
 	int error = 0;
 
 	if (!unconfined(label))
 		error = aa_task_setrlimit(label, task, resource, new_rlim);
-	aa_put_current_label(label);
+	aa_end_current_label(label);
 
 	return error;
 }
@@ -801,10 +801,10 @@ static int apparmor_unix_stream_connect(struct sock *sock, struct sock *other,
 	struct aa_label *label;
 	int error;
 
-	label = aa_get_current_label();
+	label = aa_begin_current_label();
 	error = unix_fs_perm(OP_CONNECT, label, other,
 			     MAY_READ | MAY_WRITE);
-	aa_put_current_label(label);
+	aa_end_current_label(label);
 
 	if (error)
 		return error;
@@ -832,7 +832,7 @@ static int apparmor_unix_may_send(struct socket *sock, struct socket *other)
 {
 	struct aa_sk_cxt *other_cxt = SK_CXT(other->sk);
 	struct aa_sk_cxt *cxt = SK_CXT(sock->sk);
-	struct aa_label *label = aa_get_current_label();
+	struct aa_label *label = aa_begin_current_label();
 	int error;
 
 	/* TODO update label instead */
@@ -841,7 +841,7 @@ static int apparmor_unix_may_send(struct socket *sock, struct socket *other)
 	error = xcheck(unix_fs_perm(OP_SENDMSG, label, other->sk, MAY_WRITE),
 		       unix_fs_perm(OP_SENDMSG, other_cxt->label, sock->sk,
 				    MAY_READ));
-	aa_put_current_label(label);
+	aa_end_current_label(label);
 
 	return error;
 }
@@ -1109,11 +1109,11 @@ static int apparmor_task_kill(struct task_struct *target, struct siginfo *info,
 		 *  Dealing with USB IO specific behavior
 		 */
 		return 0;
-	cl = aa_get_current_label();
+	cl = aa_begin_current_label();
 	tl = aa_get_task_label(target);
 	error = aa_may_signal(cl, tl, sig);
 	aa_put_label(tl);
-	aa_put_current_label(cl);
+	aa_end_current_label(cl);
 
 	return error;
 }
