@@ -961,6 +961,33 @@ static int apparmor_socket_shutdown(struct socket *sock, int how)
 	return aa_revalidate_sk(OP_SOCK_SHUTDOWN, sk);
 }
 
+/* from net/af_unix.c */
+#define unix_peer(sk) (unix_sk(sk)->peer)
+
+static struct aa_label *sk_peer_label(struct sock *sk)
+{
+	struct sock *peer_sk;
+	struct aa_sk_cxt *cxt = SK_CXT(sk);
+
+	if (cxt->peer)
+		return cxt->peer;
+
+	if (sk->sk_family != PF_UNIX)
+		return ERR_PTR(-ENOPROTOOPT);
+
+	/* check for sockpair peering which does not go through
+	 * security_unix_stream_connect
+	 */
+	peer_sk = unix_peer(sk);
+	if (peer_sk) {
+		cxt = SK_CXT(peer_sk);
+		if (cxt->label)
+			return cxt->label;
+	}
+
+	return ERR_PTR(-ENOPROTOOPT);
+}
+
 /**
  * apparmor_socket_getpeersec_stream - get security context of peer
  *
@@ -972,14 +999,13 @@ static int apparmor_socket_getpeersec_stream(struct socket *sock,
 {
 	char *name;
 	int slen, error = 0;
-	struct aa_sk_cxt *cxt = SK_CXT(sock->sk);
 	struct aa_label *label = aa_current_label();
+	struct aa_label *peer = sk_peer_label(sock->sk);
 
-	if (!cxt->peer)
-		return -ENOPROTOOPT;
+	if (IS_ERR(peer))
+		return PTR_ERR(peer);
 
-	slen = aa_label_asprint(&name, labels_ns(label), cxt->peer, true,
-				GFP_KERNEL);
+	slen = aa_label_asprint(&name, labels_ns(label), peer, true, GFP_KERNEL);
 	/* don't include terminating \0 in slen, it breaks some apps */
 	if (slen < 0) {
 		error = -ENOMEM;
