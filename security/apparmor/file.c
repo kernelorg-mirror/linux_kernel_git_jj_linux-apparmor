@@ -162,7 +162,8 @@ static int path_name(int op, struct aa_label *label, struct path *path,
 {
 	struct aa_profile *profile;
 	const char *info = NULL;
-	int error = aa_path_name(path, flags, buffer, name, &info);
+	int error = aa_path_name(path, flags, buffer, name, &info,
+				 labels_profile(label)->disconnected);
 	if (error) {
 		if (error == -ENOENT && is_deleted(path->dentry) &&
 		    delegate_deleted)

@@ -27,7 +27,7 @@ enum path_flags {
 };
 
 int aa_path_name(struct path *path, int flags, char *buffer,
-		 const char **name, const char **info);
+		 const char **name, const char **info, const char *disconnect);
 
 #define MAX_PATH_BUFFERS 2
 

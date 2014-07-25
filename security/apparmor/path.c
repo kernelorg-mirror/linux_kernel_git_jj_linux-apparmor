@@ -49,7 +49,8 @@ static int prepend(char **buffer, int buflen, const char *str, int namelen)
  *     of chroot) and specifically directed to connect paths to
  *     namespace root.
  */
-static int disconnect(struct path *path, char *buf, char **name, int flags)
+static int disconnect(struct path *path, char *buf, char **name, int flags,
+		      const char *disconnected)
 {
 	int error = 0;
 
@@ -62,9 +63,14 @@ static int disconnect(struct path *path, char *buf, char **name, int flags)
 		error = -EACCES;
 		if (**name == '/')
 			*name = *name + 1;
-	} else if (**name != '/')
-		/* CONNECT_PATH with missing root */
-		error = prepend(name, *name - buf, "/", 1);
+	} else {
+		if (**name != '/')
+			/* CONNECT_PATH with missing root */
+			error = prepend(name, *name - buf, "/", 1);
+		if (!error && disconnected)
+			error = prepend(name, *name - buf, disconnected,
+					strlen(disconnected));
+	}
 
 	return error;
 }
@@ -75,6 +81,7 @@ static int disconnect(struct path *path, char *buf, char **name, int flags)
  * @buf:  buffer to store path to  (NOT NULL)
  * @name: Returns - pointer for start of path name with in @buf (NOT NULL)
  * @flags: flags controlling path lookup
+ * @disconnected: string to prefix to disconnected paths
  *
  * Handle path name lookup.
  *
@@ -83,7 +90,7 @@ static int disconnect(struct path *path, char *buf, char **name, int flags)
  *          to a position in @buf
  */
 static int d_namespace_path(struct path *path, char *buf, char **name,
-			    int flags)
+			    int flags, const char *disconnected)
 {
 	char *res;
 	int error = 0;
@@ -107,7 +114,8 @@ static int d_namespace_path(struct path *path, char *buf, char **name,
 			error = prepend(name, *name - buf, "/proc", 5);
 			goto out;
 		} else
-			error = disconnect(path, buf, name, flags);
+			error = disconnect(path, buf, name, flags,
+					   disconnected);
 		goto out;
 	}
 
@@ -157,7 +165,7 @@ static int d_namespace_path(struct path *path, char *buf, char **name,
 	}
 
 	if (!connected)
-		error = disconnect(path, buf, name, flags);
+		error = disconnect(path, buf, name, flags, disconnected);
 
 out:
 	/*
@@ -177,6 +185,7 @@ out:
  * @buffer: buffer to put name in (NOT NULL)
  * @name: Returns - the generated path name if !error (NOT NULL)
  * @info: Returns - information on why the path lookup failed (MAYBE NULL)
+ * @disconnected: string to prepend to disconnected paths
  *
  * @name is a pointer to the beginning of the pathname (which usually differs
  * from the beginning of the buffer), or NULL.  If there is an error @name
@@ -190,10 +199,10 @@ out:
  * Returns: %0 else error code if could retrieve name
  */
 int aa_path_name(struct path *path, int flags, char *buffer, const char **name,
-		 const char **info)
+		 const char **info, const char *disconnected)
 {
 	char *str = NULL;
-	int error = d_namespace_path(path, buffer, &str, flags);
+	int error = d_namespace_path(path, buffer, &str, flags, disconnected);
 
 
 	if (info && error) {

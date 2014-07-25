@@ -348,7 +348,8 @@ int aa_remount(struct aa_label *label, struct path *path, unsigned long flags,
 
 	get_buffers(buffer);
 	error = aa_path_name(path, path_flags(labels_profile(label), path),
-			     buffer, &name, &info);
+			     buffer, &name, &info,
+			     labels_profile(label)->disconnected);
 	if (error) {
 		error = audit_mount(labels_profile(label), OP_MOUNT, name, NULL,
 				    NULL, NULL, flags, data, AA_MAY_MOUNT,
@@ -382,7 +383,7 @@ int aa_bind_mount(struct aa_label *label, struct path *path,
 
 	get_buffers(buffer, old_buffer);
 	error = aa_path_name(path, path_flags(labels_profile(label), path), buffer, &name,
-			     &info);
+			     &info, labels_profile(label)->disconnected);
 	if (error)
 		goto error;
 
@@ -392,7 +393,8 @@ int aa_bind_mount(struct aa_label *label, struct path *path,
 
 	error = aa_path_name(&old_path, path_flags(labels_profile(label),
 						   &old_path),
-			     old_buffer, &old_name, &info);
+			     old_buffer, &old_name, &info,
+			     labels_profile(label)->disconnected);
 	path_put(&old_path);
 	if (error)
 		goto error;
@@ -428,7 +430,8 @@ int aa_mount_change_type(struct aa_label *label, struct path *path,
 
 	get_buffers(buffer);
 	error = aa_path_name(path, path_flags(labels_profile(label), path),
-			     buffer, &name, &info);
+			     buffer, &name, &info,
+			     labels_profile(label)->disconnected);
 	if (error) {
 		error = fn_for_each(label, profile,
 				audit_mount(profile, OP_MOUNT, name, NULL,
@@ -462,7 +465,8 @@ int aa_move_mount(struct aa_label *label, struct path *path,
 
 	get_buffers(buffer, old_buffer);
 	error = aa_path_name(path, path_flags(labels_profile(label), path),
-			     buffer, &name, &info);
+			     buffer, &name, &info,
+			     labels_profile(label)->disconnected);
 	if (error)
 		goto error;
 
@@ -472,7 +476,8 @@ int aa_move_mount(struct aa_label *label, struct path *path,
 
 	error = aa_path_name(&old_path, path_flags(labels_profile(label),
 						   &old_path),
-			     old_buffer, &old_name, &info);
+			     old_buffer, &old_name, &info,
+			     labels_profile(label)->disconnected);
 	path_put(&old_path);
 	if (error)
 		goto error;
@@ -531,7 +536,8 @@ int aa_new_mount(struct aa_label *label, const char *orig_dev_name,
 			error = aa_path_name(&dev_path,
 					     path_flags(labels_profile(label),
 							&dev_path),
-					     dev_buffer, &dev_name, &info);
+					     dev_buffer, &dev_name, &info,
+					     labels_profile(label)->disconnected);
 			path_put(&dev_path);
 			if (error)
 				goto error;
@@ -539,7 +545,8 @@ int aa_new_mount(struct aa_label *label, const char *orig_dev_name,
 	}
 
 	error = aa_path_name(path, path_flags(labels_profile(label), path),
-			     buffer, &name, &info);
+			     buffer, &name, &info,
+			     labels_profile(label)->disconnected);
 	if (error)
 		goto error;
 
@@ -591,7 +598,8 @@ int aa_umount(struct aa_label *label, struct vfsmount *mnt, int flags)
 	struct path path = { mnt, mnt->mnt_root };
 	get_buffers(buffer);
 	error = aa_path_name(&path, path_flags(labels_profile(label), &path),
-			     buffer, &name, &info);
+			     buffer, &name, &info,
+			     labels_profile(label)->disconnected);
 	if (error) {
 		error = fn_for_each(label, profile,
 				audit_mount(profile, OP_UMOUNT, name, NULL,
@@ -661,13 +669,15 @@ int aa_pivotroot(struct aa_label *label, struct path *old_path,
 	get_buffers(old_buffer, new_buffer);
 	error = aa_path_name(old_path, path_flags(labels_profile(label),
 						  old_path),
-			     old_buffer, &old_name, &info);
+			     old_buffer, &old_name, &info,
+			     labels_profile(label)->disconnected);
 	if (error)
 		goto error;
 
 	error = aa_path_name(new_path, path_flags(labels_profile(label),
 						  new_path),
-			     new_buffer, &new_name, &info);
+			     new_buffer, &new_name, &info,
+			     labels_profile(label)->disconnected);
 	if (error)
 		goto error;
 

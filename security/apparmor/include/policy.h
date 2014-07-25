@@ -154,6 +154,7 @@ struct aa_policydb {
  * @audit: the auditing mode of the profile
  * @mode: the enforcement mode of the profile
  * @path_flags: flags controlling path generation behavior
+ * @disconnected: what to prepend if attach_disconnected is specified
  * @size: the memory consumed by this profiles rules
  * @policy: general match rules governing policy
  * @file: The set of rules governing basic file access and domain transitions
@@ -192,6 +193,7 @@ struct aa_profile {
 	enum audit_mode audit;
 	long mode;
 	u32 path_flags;
+	const char *disconnected;
 	int size;
 
 	struct aa_policydb policy;

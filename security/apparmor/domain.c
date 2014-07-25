@@ -374,7 +374,7 @@ int apparmor_bprm_set_creds(struct linux_binprm *bprm)
 	/* buffer freed below, name is pointer into buffer */
 	get_buffers(buffer);
 	error = aa_path_name(&bprm->file->f_path, profile->path_flags, buffer,
-			     &name, &info);
+			     &name, &info, profile->disconnected);
 	if (error) {
 		if (profile_unconfined(profile) ||
 		    (profile->label.flags & FLAG_IX_ON_NAME_ERROR))
@@ -466,7 +466,7 @@ int apparmor_bprm_set_creds(struct linux_binprm *bprm)
 		if (!error)
 			error = aa_path_name(&bprm->file->f_path,
 					     profile->path_flags, buffer,
-					     &name, &info);
+					     &name, &info, profile->disconnected);
 	} else
 		/* fail exec */
 		error = -EACCES;
