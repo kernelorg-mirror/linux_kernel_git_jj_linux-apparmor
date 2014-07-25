@@ -142,6 +142,8 @@ int aa_net_perm(int op, struct aa_label *label, u16 family, int type,
 		return 0;
 
 
+	AA_BUG(!label);
+
 	return fn_for_each_confined(label, profile,
 			af_mask_perm(op, profile, family, type, protocol, sk));
 }
@@ -158,13 +160,11 @@ int aa_revalidate_sk(int op, struct sock *sk)
 	struct aa_label *label;
 	int error = 0;
 
-	/* aa_revalidate_sk should not be called from interrupt context
-	 * don't mediate these calls as they are not task related
-	 */
-	if (in_interrupt())
-		return 0;
+	AA_BUG(!sk);
 
-	label = __aa_current_label();
+	label = ((struct aa_sk_cxt *) SK_CXT(sk))->label;
+	AA_BUG(!label);
+
 	if (!unconfined(label))
 		error = aa_net_perm(op, label, sk->sk_family, sk->sk_type,
 				    sk->sk_protocol, sk);
