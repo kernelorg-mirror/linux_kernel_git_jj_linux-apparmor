@@ -128,16 +128,22 @@ static const char *hname_tail(const char *hname)
 static bool policy_init(struct aa_policy *policy, const char *prefix,
 			const char *name)
 {
+	char *hname;
+
 	/* freed by policy_free */
 	if (prefix) {
-		policy->hname = kmalloc(strlen(prefix) + strlen(name) + 3,
-					GFP_KERNEL);
-		if (policy->hname)
-			sprintf(policy->hname, "%s//%s", prefix, name);
-	} else
-		policy->hname = kstrdup(name, GFP_KERNEL);
-	if (!policy->hname)
+		hname = aa_str_alloc(strlen(prefix) + strlen(name) + 3,
+				     GFP_KERNEL);
+		if (hname)
+			sprintf(hname, "%s//%s", prefix, name);
+	} else {
+		hname = aa_str_alloc(strlen(name) + 1, GFP_KERNEL);
+		if (hname)
+			strcpy(hname, name);
+	}
+	if (!hname)
 		return 0;
+	policy->hname = hname;
 	/* base.name is a substring of fqname */
 	policy->name = (char *)hname_tail(policy->hname);
 	INIT_LIST_HEAD(&policy->list);
@@ -166,7 +172,7 @@ static void policy_destroy(struct aa_policy *policy)
 	}
 
 	/* don't free name as its a subset of hname */
-	kzfree(policy->hname);
+	aa_put_str(policy->hname);
 }
 
 /**
@@ -703,7 +709,7 @@ struct aa_profile *aa_new_null_profile(struct aa_profile *parent, int hat)
 		goto fail;
 
 	profile->mode = APPARMOR_COMPLAIN;
-	profile->flags = PFLAG_NULL;
+	profile->flags |= PFLAG_NULL;
 	if (hat)
 		profile->flags |= PFLAG_HAT;
 
@@ -732,7 +738,7 @@ struct aa_profile *aa_setup_default_profile(void)
 		return NULL;
 
 	/* the default profile pretends to be unconfined until it is replaced */
-	profile->flags = PFLAG_IX_ON_NAME_ERROR;
+	profile->flags |= PFLAG_IX_ON_NAME_ERROR;
 	profile->mode = APPARMOR_UNCONFINED;
 
 	profile->ns = aa_get_namespace(root_ns);
@@ -1076,6 +1082,14 @@ static int __lookup_replace(struct aa_namespace *ns, const char *hname,
 	return 0;
 }
 
+static void share_name(struct aa_profile *old, struct aa_profile *new)
+{
+	aa_put_str(new->base.hname);
+	aa_get_str(old->base.hname);
+	new->base.hname = old->base.hname;
+	new->base.name = old->base.name;
+}
+
 /**
  * aa_replace_profiles - replace profile(s) on the profile list
  * @udata: serialized data stream  (NOT NULL)
@@ -1189,6 +1203,7 @@ ssize_t aa_replace_profiles(void *udata, size_t size, bool noreplace)
 		audit_policy(op, GFP_ATOMIC, ent->new->base.name, NULL, error);
 
 		if (ent->old) {
+			share_name(ent->old, ent->new);
 			__replace_profile(ent->old, ent->new, 1);
 			if (ent->rename) {
 				/* aafs interface uses replacedby */

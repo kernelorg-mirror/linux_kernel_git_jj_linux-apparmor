@@ -118,4 +118,34 @@ static inline bool mediated_filesystem(struct inode *inode)
 	return !(inode->i_sb->s_flags & MS_NOUSER);
 }
 
+
+struct counted_str {
+	struct kref count;
+	char name[];
+};
+
+#define str_to_counted(str) \
+	((struct counted_str *)(str - offsetof(struct counted_str,name)))
+
+#define __counted	/* atm just a notation */
+
+void aa_str_kref(struct kref *kref);
+char *aa_str_alloc(int size, gfp_t gfp);
+
+
+static inline __counted char *aa_get_str(__counted char *str)
+{
+	if (str)
+		kref_get(&(str_to_counted(str)->count));
+
+	return str;
+}
+
+static inline void aa_put_str(__counted char *str)
+{
+	if (str)
+		kref_put(&str_to_counted(str)->count, aa_str_kref);
+}
+
+
 #endif /* __APPARMOR_H */

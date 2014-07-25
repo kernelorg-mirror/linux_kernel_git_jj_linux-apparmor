@@ -78,13 +78,13 @@ struct aa_profile;
 
 /* struct aa_policy - common part of both namespaces and profiles
  * @name: name of the object
- * @hname - The hierarchical name
+ * @hname - The hierarchical name, NOTE: is .name of struct counted_str
  * @list: list policy object is on
  * @profiles: head of the profiles list contained in the object
  */
 struct aa_policy {
-	char *name;
-	char *hname;
+	const char *name;
+	__counted char *hname;
 	struct list_head list;
 	struct list_head profiles;
 };

@@ -104,3 +104,20 @@ void *__aa_kvmalloc(size_t size, gfp_t flags)
 	}
 	return buffer;
 }
+
+
+__counted char *aa_str_alloc(int size, gfp_t gfp)
+{
+	struct counted_str *str;
+	str = kmalloc(sizeof(struct counted_str) + size, gfp);
+	if (!str)
+		return NULL;
+
+	kref_init(&str->count);
+	return str->name;
+}
+
+void aa_str_kref(struct kref *kref)
+{
+	kfree(container_of(kref, struct counted_str, count));
+}
