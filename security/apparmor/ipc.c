@@ -99,7 +99,7 @@ static int cross_ptrace_perm(struct aa_profile *tracer,
 				       x_profile_ptrace_perm, request, sa);
 
 	/* policy uses the old style capability check for ptrace */
-	if (tracer == tracee)
+	if (profile_unconfined(tracer) || tracer == tracee)
 		return 0;
 
 	aad(sa)->label = &tracer->label;
