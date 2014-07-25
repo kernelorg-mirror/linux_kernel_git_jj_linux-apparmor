@@ -25,37 +25,6 @@
 #define cred_cxt(X) (X)->security
 #define current_cxt() cred_cxt(current_cred())
 
-/* struct aa_file_cxt - the AppArmor context the file was opened in
- * @perms: the permission the file was opened with
- *
- * The file_cxt could currently be directly stored in file->f_security
- * as the label reference is now stored in the f_cred.  However the
- * cxt struct will expand in the future so we keep the struct.
- */
-struct aa_file_cxt {
-	u16 allow;
-};
-
-/**
- * aa_alloc_file_context - allocate file_cxt
- * @gfp: gfp flags for allocation
- *
- * Returns: file_cxt or NULL on failure
- */
-static inline struct aa_file_cxt *aa_alloc_file_context(gfp_t gfp)
-{
-	return kzalloc(sizeof(struct aa_file_cxt), gfp);
-}
-
-/**
- * aa_free_file_context - free a file_cxt
- * @cxt: file_cxt to free  (MAYBE_NULL)
- */
-static inline void aa_free_file_context(struct aa_file_cxt *cxt)
-{
-	if (cxt)
-		kzfree(cxt);
-}
 
 /**
  * struct aa_task_cxt - primary label for confined tasks

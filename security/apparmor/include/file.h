@@ -15,6 +15,8 @@
 #ifndef __AA_FILE_H
 #define __AA_FILE_H
 
+#include <linux/spinlock.h>
+
 #include "domain.h"
 #include "match.h"
 #include "label.h"
@@ -48,6 +50,55 @@ struct path;
 				 AA_MAY_META_READ | AA_MAY_META_WRITE | \
 				 AA_MAY_CHMOD | AA_MAY_CHOWN | AA_MAY_LOCK | \
 				 AA_EXEC_MMAP | AA_MAY_LINK)
+
+#define file_cxt(X) ((struct aa_file_cxt *)(X)->f_security)
+
+/* struct aa_file_cxt - the AppArmor context the file was opened in
+ * @lock: lock to update the cxt
+ * @label: label currently cached on the cxt
+ * @perms: the permission the file was opened with
+ */
+struct aa_file_cxt {
+	spinlock_t lock;
+	struct aa_label __rcu *label;
+	u16 allow;
+};
+
+/**
+ * aa_alloc_file_cxt - allocate file_cxt
+ * @label: initial label of task creating the file
+ * @gfp: gfp flags for allocation
+ *
+ * Returns: file_cxt or NULL on failure
+ */
+static inline struct aa_file_cxt *aa_alloc_file_cxt(struct aa_label *label, gfp_t gfp)
+{
+	struct aa_file_cxt *cxt;
+
+	cxt = kzalloc(sizeof(struct aa_file_cxt), gfp);
+	if (cxt) {
+		spin_lock_init(&cxt->lock);
+		rcu_assign_pointer(cxt->label, aa_get_label(label));
+	}
+	return cxt;
+}
+
+/**
+ * aa_free_file_cxt - free a file_cxt
+ * @cxt: file_cxt to free  (MAYBE_NULL)
+ */
+static inline void aa_free_file_cxt(struct aa_file_cxt *cxt)
+{
+	if (cxt) {
+		aa_put_label(rcu_access_pointer(cxt->label));
+		kzfree(cxt);
+	}
+}
+
+static inline struct aa_label *aa_get_file_label(struct aa_file_cxt *cxt)
+{
+	return aa_get_label_rcu(&cxt->label);
+}
 
 /*
  * The xindex is broken into 3 parts
