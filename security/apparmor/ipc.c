@@ -221,10 +221,6 @@ static int aa_signal_cross_perm(struct aa_profile *sender,
 				struct aa_profile *target,
 				struct common_audit_data *sa)
 {
-	/* if sender is unconfined bypass receiver test in cross check */
-	if (profile_unconfined(sender))
-		return 0;
-
 	return cross_check_profiles(sender, target, profile_signal_perm,
 				    x_profile_signal_perm, MAY_WRITE, sa);
 }
