@@ -586,7 +586,7 @@ int aa_file_perm(int op, struct aa_label *label, struct file *file,
 					 denied);
 	if (error)
 		goto done;
-	update_file_cxt(fcxt, label, request);
+	/*update_file_cxt(fcxt, label, request);*/
 
 done:
 	rcu_read_unlock();
