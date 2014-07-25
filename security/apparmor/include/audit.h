@@ -73,6 +73,10 @@ enum aa_ops {
 	OP_FMPROT,
 	OP_INHERIT,
 
+	OP_PIVOTROOT,
+	OP_MOUNT,
+	OP_UMOUNT,
+
 	OP_CREATE,
 	OP_POST_CREATE,
 	OP_BIND,
@@ -134,6 +138,13 @@ struct apparmor_audit_data {
 			int rlim;
 			unsigned long max;
 		} rlim;
+		struct {
+			const char *src_name;
+			const char *type;
+			const char *trans;
+			const char *data;
+			unsigned long flags;
+		} mnt;
 	};
 };
 

@@ -46,6 +46,10 @@ const char *const op_table[] = {
 	"file_mprotect",
 	"file_inherit",
 
+	"pivotroot",
+	"mount",
+	"umount",
+
 	"create",
 	"post_create",
 	"bind",
