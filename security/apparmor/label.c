@@ -683,6 +683,16 @@ struct aa_label *aa_label_insert(struct aa_labelset *ls, struct aa_label *l)
 	return label;
 }
 
+struct aa_label *aa_label_vec_find_or_create(struct aa_labelset *ls,
+					     struct aa_profile **vec, int len)
+{
+	struct aa_label *label = aa_label_vec_find(ls, vec, len);
+	if (label)
+		return label;
+
+	return aa_label_vec_merge(vec, len, GFP_KERNEL);
+}
+
 /**
  * aa_label_next_in_merge - find the next profile when merging @a and @b
  * @I: label iterator
@@ -1020,6 +1030,48 @@ struct aa_label *aa_label_merge(struct aa_label *a, struct aa_label *b,
 		aa_put_label(l);
 		aa_put_label(ar);
 		aa_put_label(br);
+	}
+
+	return label;
+}
+
+/* assume sort and merge done first */
+struct aa_label *aa_label_vec_merge(struct aa_profile **vec, int len,
+				    gfp_t gfp)
+{
+	struct aa_label *label = NULL;
+	struct aa_labelset *ls;
+	unsigned long flags;
+
+	AA_BUG(!vec);
+
+	if (len == 1)
+		return aa_get_label(&vec[0]->label);
+
+	ls = labels_set(&vec[len - 1]->label);
+
+	/* TODO: enable when read side is lockless
+	 * check if label exists before taking locks
+	 */
+
+	if (!label) {
+		struct aa_label *new;
+		int i;
+
+		new = aa_label_alloc(len, gfp);
+		if (!new)
+			return NULL;
+
+		write_lock_irqsave(&ls->lock, flags);
+		for (i = 0; i < len; i++) {
+			new->ent[i] = aa_get_profile(vec[i]);
+			label = __aa_label_insert(ls, new);
+			if (label != new)
+				/* not fully constructed don't put */
+				aa_label_free(new);
+		}
+		write_unlock_irqrestore(&ls->lock, flags);
+		aa_put_label(new);		/* extra count */
 	}
 
 	return label;
@@ -1442,7 +1494,6 @@ void aa_label_printk(struct aa_namespace *ns, struct aa_label *label, bool mode,
 		printk("%s", label->hname);
 }
 
-
 static int label_count_str_entries(const char *str)
 {
 	const char *split;
@@ -1463,11 +1514,13 @@ static int label_count_str_entries(const char *str)
  * @base: base label to use for lookups (NOT NULL)
  * @str: null terminated text string (NOT NULL)
  * @gfp: allocation type
+ * @create: true if should create compound labels if they don't exist
  *
  * Returns: the matching refcounted label if present
  *     else ERRPTR
  */
-struct aa_label *aa_label_parse(struct aa_label *base, char *str, gfp_t gfp)
+struct aa_label *aa_label_parse(struct aa_label *base, char *str, gfp_t gfp,
+				bool create)
 {
 	DEFINE_PROFILE_VEC(vec, tmp);
 	struct aa_label *l;
@@ -1499,7 +1552,10 @@ struct aa_label *aa_label_parse(struct aa_label *base, char *str, gfp_t gfp)
 	i = aa_sort_and_merge_profiles(len, vec);
 	len -= i;
 
-	l = aa_label_vec_find(labels_set(base), vec, len);
+	if (create)
+		l = aa_label_vec_find_or_create(labels_set(base), vec, len);
+	else
+		l = aa_label_vec_find(labels_set(base), vec, len);
 	if (!l)
 		l = ERR_PTR(-ENOENT);
 

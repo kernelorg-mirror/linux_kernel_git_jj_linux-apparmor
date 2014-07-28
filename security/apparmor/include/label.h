@@ -304,6 +304,8 @@ struct aa_label *aa_label_find(struct aa_labelset *ls, struct aa_label *l);
 struct aa_label *aa_label_vec_find(struct aa_labelset *ls,
 				   struct aa_profile **vec,
 				   int n);
+struct aa_label *aa_label_vec_merge(struct aa_profile **vec, int len,
+				    gfp_t gfp);
 
 struct aa_profile *aa_label_next_in_merge(struct label_it *I,
 					  struct aa_label *a,
@@ -330,7 +332,7 @@ void aa_label_seq_print(struct seq_file *f, struct aa_namespace *ns,
 void aa_label_printk(struct aa_namespace *ns, struct aa_label *label,
 		     bool mode, gfp_t gfp);
 struct aa_label *aa_label_parse(struct aa_label *base, char *str,
-				gfp_t gfp);
+				gfp_t gfp, bool create);
 
 static inline struct aa_label *aa_get_label(struct aa_label *l)
 {

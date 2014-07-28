@@ -236,7 +236,8 @@ static ssize_t query_label(char *buf, size_t buf_len,
 	match_str = label_name + label_name_len + 1;
 	match_len = query_len - label_name_len - 1;
 
-	label = aa_label_parse(aa_current_label(), label_name, GFP_KERNEL);
+	label = aa_label_parse(aa_current_label(), label_name, GFP_KERNEL,
+			       false);
 	if (IS_ERR(label))
 		return PTR_ERR(label);
 
