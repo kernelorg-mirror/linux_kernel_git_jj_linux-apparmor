@@ -1467,24 +1467,20 @@ static int label_count_str_entries(const char *str)
  * Returns: the matching refcounted label if present
  *     else ERRPTR
  */
-#define LOCAL_VEC_ENTRIES 8
 struct aa_label *aa_label_parse(struct aa_label *base, char *str, gfp_t gfp)
 {
-	struct aa_profile **vec, *tmp[LOCAL_VEC_ENTRIES];
+	DEFINE_PROFILE_VEC(vec, tmp);
 	struct aa_label *l;
-	int i, len;
+	int i, len, error;
 	char *split;
 
 	AA_BUG(!base);
 	AA_BUG(!str);
 
 	len = label_count_str_entries(str);
-	if (len > LOCAL_VEC_ENTRIES) {
-		vec = kmalloc(sizeof(struct aa_profile *) * len, gfp);
-		if (!vec)
-			return ERR_PTR(-ENOMEM);
-	} else
-		vec = tmp;
+	error = aa_setup_profile_vec(vec, tmp, len);
+	if (error)
+		return ERR_PTR(error);
 
 	for (split = strstr(str, "//&"), i = 0; split && i < len; i++) {
 		vec[i] = aa_fqlookupn_profile(base, str, split - str);
@@ -1508,10 +1504,8 @@ struct aa_label *aa_label_parse(struct aa_label *base, char *str, gfp_t gfp)
 		l = ERR_PTR(-ENOENT);
 
 out:
-	for (i = 0; i < len && vec[i]; i++)
-		aa_put_profile(vec[i]);
-	if (vec != tmp)
-		kfree(vec);
+	/* use adjusted len from after sort_and_merge, not original */
+	aa_cleanup_profile_vec(vec, tmp, len);
 	return l;
 
 fail:

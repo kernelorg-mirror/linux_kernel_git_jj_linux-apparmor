@@ -374,4 +374,30 @@ static inline int AUDIT_MODE(struct aa_profile *profile)
 
 bool aa_may_manage_policy(int op);
 
+
+#define LOCAL_VEC_ENTRIES 8
+#define DEFINE_PROFILE_VEC(V, T)					\
+	struct aa_profile *(T)[LOCAL_VEC_ENTRIES];			\
+	struct aa_profile **(V)
+
+#define aa_setup_profile_vec(V, T, L)					\
+({									\
+	if ((L) > LOCAL_VEC_ENTRIES)					\
+		(V) = kmalloc(sizeof(struct aa_profile *) * (L), GFP_KERNEL);\
+	else								\
+		(V) = (T);						\
+	(V) ? 0 : -ENOMEM;						\
+})
+
+static inline void aa_cleanup_profile_vec(struct aa_profile **vec,	\
+					  struct aa_profile **tmp, int len) \
+{									\
+	int i;								\
+	for (i = 0; i < len; i++)					\
+		aa_put_profile(vec[i]);					\
+	if (vec != tmp)							\
+		kfree(vec);						\
+}
+
+
 #endif /* __AA_POLICY_H */
