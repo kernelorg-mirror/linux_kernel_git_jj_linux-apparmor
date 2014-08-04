@@ -16,6 +16,7 @@
 #include <linux/fdtable.h>
 #include <linux/file.h>
 
+#include "include/af_unix.h"
 #include "include/apparmor.h"
 #include "include/audit.h"
 #include "include/context.h"
@@ -26,9 +27,10 @@
 
 struct file_perms nullperms;
 
+
 static u32 map_mask_to_chr_mask(u32 mask)
 {
-	u32 m = mask & PERMS_CHR_MASK;
+	u32 m = mask & PERMS_CHRS_MASK;
 	if (mask & AA_MAY_GETATTR)
 		m |= MAY_READ;
 	if (mask & (AA_MAY_SETATTR | AA_MAY_CHMOD | AA_MAY_CHOWN))
@@ -46,7 +48,7 @@ static void audit_file_mask(struct audit_buffer *ab, u32 mask)
 {
 	char str[10];
 
-	aa_perm_mask_to_str(str, map_mask_to_chr_mask(mask));
+	aa_perm_mask_to_str(str, aa_file_perm_chrs, map_mask_to_chr_mask(mask));
 	audit_log_string(ab, str);
 }
 
@@ -187,10 +189,11 @@ static u32 map_old_perms(u32 old)
 {
 	u32 new = old & 0xf;
 	if (old & MAY_READ)
-		new |= AA_MAY_GETATTR;
+		new |= AA_MAY_GETATTR | AA_MAY_OPEN;
 	if (old & MAY_WRITE)
 		new |= AA_MAY_SETATTR | AA_MAY_CREATE | AA_MAY_DELETE |
-			AA_MAY_CHMOD | AA_MAY_CHOWN;
+			AA_MAY_CHMOD | AA_MAY_CHOWN | AA_MAY_OPEN |
+		        AA_MAY_DELETE;
 	if (old & 0x10)
 		new |= AA_MAY_LINK;
 	/* the old mapping lock and link_subset flags where overlaid
@@ -470,6 +473,27 @@ out:
 	return error;
 }
 
+static void update_file_cxt(struct aa_file_cxt *fcxt, struct aa_label *label,
+			    u32 request)
+{
+	struct aa_label *l, *old;
+
+	/* update caching of label on file_cxt */
+	spin_lock(&fcxt->lock);
+	old = rcu_dereference_protected(fcxt->label,
+					spin_is_locked(&fcxt->lock));
+	l = aa_label_merge(old, label, GFP_ATOMIC);
+	if (l) {
+		if (l != old) {
+			rcu_assign_pointer(fcxt->label, l);
+			aa_put_label(old);
+		} else
+			aa_put_label(l);
+		fcxt->allow |= request;
+	}
+	spin_unlock(&fcxt->lock);
+}
+
 static int __file_path_perm(int op, struct aa_label *label,
 			    struct aa_label *flabel, struct file *file,
 			    u32 request, u32 denied)
@@ -513,21 +537,20 @@ static int __file_path_perm(int op, struct aa_label *label,
 		goto out;
 
 	if (denied) {
-		/* expanding cached perms
+		/* ensure that all cached profiles all the perm to be cached
 		 * - check profiles in flabel not already checked in label
 		 */
 		/* TODO: cache full perms so this only happens because of
 		 * conditionals */
-		/* TODO: don't audit here
+		/* TODO: don't audit here */
 		int e = fn_for_each_not_in_set(label, flabel, profile,
 				path_perm(op, profile, name, request, &cond,
 					  &perms));
 		if (e)
 			goto out;
-		*/
 	}
 
-	/*update_file_cxt(fcxt, label, request);*/
+	update_file_cxt(file_cxt(file), label, request);
 
 out:
 	put_buffers(buffer);
@@ -535,6 +558,33 @@ out:
 	return error;
 }
 
+/* from net/unix/af_unix.c */
+static void unix_state_double_lock(struct sock *sk1, struct sock *sk2)
+{
+	if (unlikely(sk1 == sk2) || !sk2) {
+		unix_state_lock(sk1);
+		return;
+	}
+	if (sk1 < sk2) {
+		unix_state_lock(sk1);
+		unix_state_lock_nested(sk2);
+	} else {
+		unix_state_lock(sk2);
+		unix_state_lock_nested(sk1);
+	}
+}
+
+static void unix_state_double_unlock(struct sock *sk1, struct sock *sk2)
+{
+	if (unlikely(sk1 == sk2) || !sk2) {
+		unix_state_unlock(sk1);
+		return;
+	}
+	unix_state_unlock(sk1);
+	unix_state_unlock(sk2);
+}
+
+#include <uapi/linux/magic.h>
 /**
  * aa_file_perm - do permission revalidation check & audit for @file
  * @op: operation being checked
@@ -570,16 +620,75 @@ int aa_file_perm(int op, struct aa_label *label, struct file *file,
 	 */
 	denied = request & ~fcxt->allow;
 	if (unconfined(label) || unconfined(flabel) ||
-	    (!denied && ((flabel == label) ||
-			 aa_label_is_subset(flabel, label))))
+	    (!denied && aa_label_is_subset(flabel, label)))
 		goto done;
 
 	/* TODO: label cross check */
 
-	if (file->f_path.mnt && path_mediated_fs(file_inode(file)))
+	if (file->f_path.mnt && path_mediated_fs(file_inode(file))) {
 		error = __file_path_perm(op, label, flabel, file, request,
 					 denied);
 
+  } else if (S_ISSOCK(file_inode(file)->i_mode)) {
+/*
+we should be handling unix domain sockets differently than straight file_path
+need to cross check them based on peer address if we can?
+can we the sock peer is not locked.
+can we lock it
+
+should have cross check in connect
+
+hrmm perhaps should refactor socket perm check before  doing this patch
+*/
+       struct socket *sock = (struct socket *) file->private_data;
+       printk("apparmor: need to revalidate socket %p allow 0x%x denied 0x%x subset %d label: ", sock, fcxt->allow, denied, aa_label_is_subset(flabel, label));
+       aa_label_printk(current_ns(), label, false, GFP_ATOMIC);
+       printk(" flabel: ");
+       aa_label_printk(current_ns(), flabel, false, GFP_ATOMIC);
+       if (sock) {
+               struct aa_sk_cxt *sk_cxt = SK_CXT(sock->sk);
+               printk(" slabel: ");
+               aa_label_printk(current_ns(), sk_cxt->label, false, GFP_ATOMIC);
+               printk(" ");
+               print_sk(sock->sk);
+	       /* TODO: update sock label with new task label */
+               if (sock->sk->sk_family == AF_UNIX) {
+		       unix_state_lock(sock->sk);
+		       struct sock *peer_sk;
+		       peer_sk = unix_peer(sock->sk);
+		       if (peer_sk) {
+			       sock_hold(peer_sk);
+		       } else {
+			       printk("apparmor: file revalidate of unconnected unix sock\n");
+			       error = aa_label_unix_sk_perm(label, op, request, sock->sk);
+		       }
+                       unix_state_unlock(sock->sk);
+		       if (peer_sk) {
+			       struct aa_sk_cxt *pcxt = SK_CXT(peer_sk);
+			       u32 rreq = 0;
+			       if (request & AA_MAY_READ)
+				       rreq = AA_MAY_WRITE;
+			       if (request & AA_MAY_WRITE)
+				       rreq |= AA_MAY_READ;
+			       unix_state_double_lock(sock->sk, peer_sk);
+			       printk("apparmor: file revalidate of connected unix sock\n");
+			       error = xcheck(aa_unix_peer_perm(op, request,
+								label, sock->sk,
+								peer_sk),
+					      aa_unix_peer_perm(op, rreq,
+								pcxt->label,
+								peer_sk, sock->sk));
+			       unix_state_double_unlock(sock->sk, peer_sk);
+			       sock_put(peer_sk);
+		       }
+               }
+       } else
+               printk("no sock\n");
+  } else {
+char *s = aa_imode_name(file_inode(file)->i_mode);
+if (file_inode(file)->i_sb->s_magic != PIPEFS_MAGIC && file_inode(file)->i_sb->s_magic != ANON_INODE_FS_MAGIC)
+  printk("apparmor: revalidation of non-mediated file. denied 0x%x mnt? %p (%s) label: (%p) magic 0x%x\n", denied, file->f_path.mnt, s, label, file_inode(file)->i_sb->s_magic);
+  }
 done:
 	rcu_read_unlock();
 
@@ -599,6 +708,7 @@ static void revalidate_tty(struct aa_label *label)
 	if (!list_empty(&tty->tty_files)) {
 		struct tty_file_private *file_priv;
 		struct file *file;
+		/* TODO: Revalidate access to controlling tty. */
 		file_priv = list_first_entry(&tty->tty_files,
 					     struct tty_file_private, list);
 		file = file_priv->file;
@@ -641,6 +751,7 @@ void aa_inherit_files(const struct cred *cred, struct files_struct *files)
 		devnull = NULL;
 	/* replace all the matching ones with this */
 	do {
+printk("apparmor: replacing %d\n", n -1);
 		replace_fd(n - 1, devnull, 0);
 	} while ((n = iterate_fd(files, n, match_file, label)) != 0);
 	if (devnull)

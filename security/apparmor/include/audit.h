@@ -89,7 +89,7 @@ enum aa_ops {
 	OP_GETPEERNAME,
 	OP_GETSOCKOPT,
 	OP_SETSOCKOPT,
-	OP_SOCK_SHUTDOWN,
+	OP_SHUTDOWN,
 
 	OP_PTRACE,
 	OP_SIGNAL,
@@ -129,7 +129,9 @@ struct apparmor_audit_data {
 				} fs;
 				struct {
 					int type, protocol;
-					struct sock *sk;
+					struct sock *peer_sk;
+					void *addr;
+					int addrlen;
 				} net;
 				int signal;
 			};

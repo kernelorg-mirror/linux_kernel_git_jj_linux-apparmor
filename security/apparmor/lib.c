@@ -172,35 +172,9 @@ void aa_str_kref(struct kref *kref)
 	kfree(container_of(kref, struct counted_str, count));
 }
 
-/**
- * aa_perm_mask_to_str - convert a perm mask to its short string
- * @str: character buffer to store string in (at least 10 characters)
- * @mask: permission mask to convert
- */
-void aa_perm_mask_to_str(char *str, u32 mask)
-{
-	if (mask & AA_EXEC_MMAP)
-		*str++ = 'm';
-	if (mask & MAY_READ)
-		*str++ = 'r';
-	if (mask & MAY_WRITE)
-		*str++ = 'w';
-	else if (mask & MAY_APPEND)
-		*str++ = 'a';
-	if (mask & AA_MAY_CREATE)
-		*str++ = 'c';
-	if (mask & AA_MAY_DELETE)
-		*str++ = 'd';
-	if (mask & AA_MAY_LINK)
-		*str++ = 'l';
-	if (mask & AA_MAY_LOCK)
-		*str++ = 'k';
-	if (mask & MAY_EXEC)
-		*str++ = 'x';
-	*str = '\0';
-}
 
-static const char *perm_names[] = {
+const char aa_file_perm_chrs[] = "xwracd         km l     ";
+const char *aa_file_perm_names[] = {
 	"exec",
 	"write",
 	"read",
@@ -242,6 +216,21 @@ static const char *perm_names[] = {
 	"change_hat",
 };
 
+/**
+ * aa_perm_mask_to_str - convert a perm mask to its short string
+ * @str: character buffer to store string in (at least 10 characters)
+ * @mask: permission mask to convert
+ */
+void aa_perm_mask_to_str(char *str, const char *chrs, u32 mask)
+{
+	unsigned int i, perm = 1;
+	for (i = 0; i < 32; perm <<= 1, i++) {
+		if (mask & perm)
+			*str++ = chrs[i];
+	}
+	*str = '\0';
+}
+
 void aa_audit_perm_names(struct audit_buffer *ab, const char **names, u32 mask)
 {
 	const char *fmt = "%s";
@@ -249,30 +238,30 @@ void aa_audit_perm_names(struct audit_buffer *ab, const char **names, u32 mask)
 	bool prev = false;
 	for (i = 0; i < 32; perm <<= 1, i++) {
 		if (mask & perm) {
+			audit_log_format(ab, fmt, names[i]);
 			if (!prev) {
 				prev = true;
 				fmt = " %s";
 			}
-			audit_log_format(ab, fmt, names[i]);
 		}
 	}
 }
 
-void aa_audit_perm_mask(struct audit_buffer *ab, u32 mask)
+void aa_audit_perm_mask(struct audit_buffer *ab, u32 mask, const char *chrs,
+			u32 chrsmask, const char **names, u32 namesmask)
 {
-	char str[10];
+	char str[33];
 
 	audit_log_format(ab, "\"");
-	if (mask & PERMS_CHR_MASK) {
-		aa_perm_mask_to_str(str, mask);
-		mask &= ~PERMS_CHR_MASK;
-		audit_log_format(ab, (mask & PERMS_NAME_MASK) ? " %s" : "%s",
-				 str);
-		if (mask & PERMS_NAME_MASK)
+	if ((mask & chrsmask) && chrs) {
+		aa_perm_mask_to_str(str, chrs, mask & chrsmask);
+		mask &= ~chrsmask;
+		audit_log_format(ab, "%s", str);
+		if (mask & namesmask)
 			audit_log_format(ab, " ");
 	}
-	if (mask & PERMS_NAME_MASK)
-		aa_audit_perm_names(ab, perm_names, mask);
+	if ((mask & namesmask) && names)
+		aa_audit_perm_names(ab, names, mask & namesmask);
 	audit_log_format(ab, "\"");
 }
 
@@ -287,14 +276,24 @@ static void aa_audit_perms_cb(struct audit_buffer *ab, void *va)
 
 	if (aad(sa)->request) {
 		audit_log_format(ab, " requested_mask=");
-		aa_audit_perm_mask(ab, aad(sa)->request);
+		aa_audit_perm_mask(ab, aad(sa)->request, aa_file_perm_chrs,
+				   PERMS_CHRS_MASK, aa_file_perm_names,
+				   PERMS_NAMES_MASK);
 	}
 	if (aad(sa)->denied) {
 		audit_log_format(ab, "denied_mask=");
-		aa_audit_perm_mask(ab, aad(sa)->denied);
+		aa_audit_perm_mask(ab, aad(sa)->denied, aa_file_perm_chrs,
+				   PERMS_CHRS_MASK, aa_file_perm_names,
+				   PERMS_NAMES_MASK);
 	}
 	audit_log_format(ab, " target=");
 	audit_log_untrustedstring(ab, aad(sa)->target);
+}
+
+void map_old_policy_perms(struct aa_dfa *dfa, unsigned int state,
+			  struct aa_perms *perms)
+{
+
 }
 
 /**
@@ -342,6 +341,7 @@ void aa_compute_perms(struct aa_dfa *dfa, unsigned int state,
 	perms->allow = dfa_user_allow(dfa, state);
 	perms->audit = dfa_user_audit(dfa, state);
 	perms->quiet = dfa_user_quiet(dfa, state);
+//	perms->xindex = dfa_user_xindex(dfa, state);
 }
 
 /**

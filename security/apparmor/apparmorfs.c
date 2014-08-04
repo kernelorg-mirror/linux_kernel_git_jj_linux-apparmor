@@ -1170,10 +1170,9 @@ static int aa_mk_null_file(struct dentry *parent)
 	struct inode *inode;
 	int count = 0;
 	int error = simple_pin_fs(parent->d_sb->s_type, &mount, &count);
-
-	if (error) {
+	if (error)
 		return error;
-	}
+
 	mutex_lock(&parent->d_inode->i_mutex);
 	dentry = lookup_one_len(NULL_FILE_NAME, parent, strlen(NULL_FILE_NAME));
 	if (IS_ERR(dentry)) {

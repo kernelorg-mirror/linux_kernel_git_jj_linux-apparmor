@@ -271,6 +271,16 @@ static inline unsigned int PROFILE_MEDIATES_SAFE(struct aa_profile *profile,
 	return 0;
 }
 
+static inline unsigned int PROFILE_MEDIATES_AF(struct aa_profile *profile,
+					       u16 AF) {
+	unsigned int state = PROFILE_MEDIATES(profile, AA_CLASS_NET);
+	u16 be_af = cpu_to_be16(AF);
+	if (!state)
+		return 0;
+	return aa_dfa_match_len(profile->policy.dfa, state, (char *) &be_af, 2);
+}
+
+
 static inline struct aa_profile *aa_deref_parent(struct aa_profile *p)
 {
 	return rcu_dereference_protected(p->parent,

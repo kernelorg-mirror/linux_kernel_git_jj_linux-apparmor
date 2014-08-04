@@ -4,10 +4,10 @@ obj-$(CONFIG_SECURITY_APPARMOR) += apparmor.o
 
 apparmor-y := apparmorfs.o audit.o capability.o context.o ipc.o lib.o match.o \
               path.o domain.o policy.o policy_unpack.o procattr.o lsm.o \
-              resource.o sid.o file.o label.o net.o mount.o
+              resource.o sid.o file.o label.o mount.o net.o af_unix.o
 apparmor-$(CONFIG_SECURITY_APPARMOR_HASH) += crypto.o
 
-clean-files := capability_names.h rlim_names.h
+clean-files := capability_names.h rlim_names.h net_names.h
 
 # Build a lower case string table of address family names
 # Transform lines from
@@ -24,11 +24,12 @@ clean-files := capability_names.h rlim_names.h
 #    #define AA_FS_AF_MASK "local inet"
 quiet_cmd_make-af = GEN     $@
 cmd_make-af = echo "static const char *address_family_names[] = {" > $@ ;\
-	sed $< >>$@ -r -n -e "/AF_MAX/d" -e "/AF_LOCAL/d" -e \
+	sed $< >>$@ -r -n -e "/AF_MAX/d" -e "/AF_LOCAL/d" -e "/AF_ROUTE/d" -e \
 	 's/^\#define[ \t]+AF_([A-Z0-9_]+)[ \t]+([0-9]+)(.*)/[\2] = "\L\1",/p';\
 	echo "};" >> $@ ;\
 	echo -n '\#define AA_FS_AF_MASK "' >> $@ ;\
-	sed -r -n 's/^\#define[ \t]+AF_([A-Z0-9_]+)[ \t]+([0-9]+)(.*)/\L\1/p'\
+	sed -r -n -e "/AF_MAX/d" -e "/AF_LOCAL/d" -e "/AF_ROUTE/d" -e \
+	 's/^\#define[ \t]+AF_([A-Z0-9_]+)[ \t]+([0-9]+)(.*)/\L\1/p'\
 	 $< | tr '\n' ' ' | sed -e 's/ $$/"\n/' >> $@
 
 # Build a lower case string table of sock type names

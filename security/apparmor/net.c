@@ -4,7 +4,7 @@
  * This file contains AppArmor network mediation
  *
  * Copyright (C) 1998-2008 Novell/SUSE
- * Copyright 2009-2012 Canonical Ltd.
+ * Copyright 2009-2014 Canonical Ltd.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -12,22 +12,86 @@
  * License.
  */
 
+#include "include/af_unix.h"
 #include "include/apparmor.h"
 #include "include/audit.h"
 #include "include/context.h"
-#include "include/net.h"
 #include "include/label.h"
+#include "include/net.h"
 #include "include/policy.h"
 
 #include "net_names.h"
 
+
 struct aa_fs_entry aa_fs_entry_network[] = {
-	AA_FS_FILE_STRING("af_mask", AA_FS_AF_MASK),
+	AA_FS_FILE_STRING("af_mask",	AA_FS_AF_MASK),
+	AA_FS_FILE_BOOLEAN("af_unix",	1),
 	{ }
 };
 
+static const char *net_mask_names[] = {
+	"unknown",
+	"send",
+	"receive",
+	"unknown",
+
+	"create",
+	"shutdown",
+	"connect",
+	"unknown",
+
+	"setattr",
+	"getattr",
+	"setcred",
+	"getcred",
+
+	"chmod",
+	"chown",
+	"chgrp",
+	"lock",
+
+	"mmap",
+	"mprot",
+	"unknown",
+	"unknown",
+
+	"accept",
+	"bind",
+	"listen",
+	"unknown",
+
+	"setopt",
+	"getopt",
+	"unknown",
+	"unknown",
+
+	"unknown",
+	"unknown",
+	"unknown",
+	"unknown",
+};
+
+static void audit_unix_addr(struct audit_buffer *ab, const char *str,
+			    struct sockaddr_un *addr, int addrlen)
+{
+	int len = unix_abstract_name_len(addrlen);
+
+	audit_log_format(ab, " %s=\"@", str);
+	audit_log_n_untrustedstring(ab, &addr->sun_path[1], len);
+}
+
+static void audit_unix_sk_addr(struct audit_buffer *ab, const char *str,
+			       struct sock *sk)
+{
+	struct unix_sock *u = unix_sk(sk);
+
+	/* Don't log a path for anonymous, FS based logged by file_cb */
+	if (u && UNIX_ABSTRACT(u))
+		audit_unix_addr(ab, str, u->addr->name, u->addr->len);
+}
+
 /* audit callback for net specific fields */
-static void audit_cb(struct audit_buffer *ab, void *va)
+void audit_net_cb(struct audit_buffer *ab, void *va)
 {
 	struct common_audit_data *sa = va;
 
@@ -38,12 +102,38 @@ static void audit_cb(struct audit_buffer *ab, void *va)
 		audit_log_format(ab, "\"unknown(%d)\"", sa->u.net->family);
 	}
 	audit_log_format(ab, " sock_type=");
-	if (sock_type_names[aad(sa)->net.type]) {
-	  audit_log_string(ab, sock_type_names[aad(sa)->net.type]);
-	} else {
-	  audit_log_format(ab, "\"unknown(%d)\"", aad(sa)->net.type);
-	}
+	if (sock_type_names[aad(sa)->net.type])
+		audit_log_string(ab, sock_type_names[aad(sa)->net.type]);
+	else
+		audit_log_format(ab, "\"unknown(%d)\"", aad(sa)->net.type);
 	audit_log_format(ab, " protocol=%d", aad(sa)->net.protocol);
+
+	if (aad(sa)->request & NET_PERMS_MASK) {
+		audit_log_format(ab, " requested_mask=");
+		aa_audit_perm_mask(ab, aad(sa)->request, NULL, 0,
+				   net_mask_names, NET_PERMS_MASK);
+
+		if (aad(sa)->denied & NET_PERMS_MASK) {
+			audit_log_format(ab, " denied_mask=");
+			aa_audit_perm_mask(ab, aad(sa)->denied, NULL, 0,
+					   net_mask_names, NET_PERMS_MASK);
+		}
+	}
+	if (sa->u.net->family == AF_UNIX) {
+		if (sa->u.net->sk)
+			audit_unix_sk_addr(ab, "addr", sa->u.net->sk);
+		if (aad(sa)->net.peer_sk)
+			audit_unix_sk_addr(ab, "peer_addr",
+					   aad(sa)->net.peer_sk);
+		else if (aad(sa)->net.addr)
+			audit_unix_addr(ab, "peer_addr",
+					unix_addr(aad(sa)->net.addr),
+					aad(sa)->net.addrlen);
+	}
+	if (aad(sa)->target) {
+		audit_log_format(ab, " peer=");
+		audit_log_untrustedstring(ab, aad(sa)->target);
+	}
 }
 
 /**
@@ -85,73 +175,168 @@ static int audit_net(struct aa_profile *profile, int op, u16 family, int type,
 		  return COMPLAIN_MODE(profile) ? 0 : aad(&sa)->error;
 	}
 
-	return aa_audit(audit_type, profile, &sa, audit_cb);
+	return aa_audit(audit_type, profile, &sa, audit_net_cb);
 }
 
-static int af_mask_perm(int op, struct aa_profile *profile, u16 family,
-			int type, int protocol, struct sock *sk)
+static inline int aa_af_mask_perm(struct aa_profile *profile, u16 family,
+				  int type)
 {
 	u16 family_mask;
-	int error = 0;
+
+	AA_BUG(family >= AF_MAX);
+	AA_BUG(type < 0 && type >= SOCK_MAX);
 
 	if (profile_unconfined(profile))
 		return 0;
 
-	if ((family < 0) || (family >= AF_MAX))
-		return -EINVAL;
-	if ((type < 0) || (type >= SOCK_MAX))
-		return -EINVAL;
-
 	family_mask = profile->net.allow[family];
-	error = (family_mask & (1 << type)) ? 0 : -EACCES;
+	return (family_mask & (1 << type)) ? 0 : -EACCES;
+
+}
+
+/* Generic af perm */
+int aa_profile_af_perm(struct aa_profile *profile, int op, u16 family,
+		       int type, int protocol, struct sock *sk)
+{
+	int error = aa_af_mask_perm(profile, family, type);
+
 	return audit_net(profile, op, family, type, protocol, sk, error);
 }
 
-/**
- * aa_net_perm - very course network access check
- * @op: operation being checked
- * @label: label being enforced  (NOT NULL)
- * @family: network family
- * @type:   network type
- * @protocol: network protocol
- *
- * Returns: %0 else error if permission denied
- */
-int aa_net_perm(int op, struct aa_label *label, u16 family, int type,
-		int protocol, struct sock *sk)
+int aa_af_perm(int op, u32 request, struct aa_label *label, u16 family,
+	       int type, int protocol, struct sock *sk)
 {
 	struct aa_profile *profile;
 
-	if ((family < 0) || (family >= AF_MAX))
-		return -EINVAL;
-
-	if ((type < 0) || (type >= SOCK_MAX))
-		return -EINVAL;
-
 	return fn_for_each_confined(label, profile,
-			af_mask_perm(op, profile, family, type, protocol, sk));
+			aa_profile_af_perm(profile, op, family, type, protocol,
+					   sk));
 }
 
-/**
- * aa_revalidate_sk - Revalidate access to a sock
- * @op: operation being checked
- * @sk: sock being revalidated  (NOT NULL)
- *
- * Returns: %0 else error if permission denied
- */
-int aa_revalidate_sk(int op, struct sock *sk)
+static int aa_sk_perm(int op, u32 request, struct sock *sk)
 {
+	struct aa_profile *profile;
 	struct aa_label *label;
-	int error = 0;
 
-	if (in_interrupt())
-		label = ((struct aa_sk_cxt *) SK_CXT(sk))->label;
-	else
-		label = aa_current_raw_label();
+	AA_BUG(!sk);
+	AA_BUG(in_interrupt());
 
-	if (!unconfined(label))
-		error = aa_net_perm(op, label, sk->sk_family, sk->sk_type,
-				    sk->sk_protocol, sk);
+	/* TODO: switch to begin_current_label ???? */
+	label = aa_current_label();
+	if (unconfined(label))
+		return 0;
 
-	return error;
+	return fn_for_each_confined(label, profile,
+			aa_profile_af_perm(profile, op, sk->sk_family,
+					   sk->sk_type, sk->sk_protocol,
+					   sk));
+}
+
+#define af_select(FAMILY, FN, DEF_FN)		\
+({						\
+	int __e;				\
+	switch ((FAMILY)) {			\
+	case AF_UNIX:				\
+		__e = aa_unix_ ## FN;		\
+		break;				\
+	default:				\
+		__e = DEF_FN;			\
+	}					\
+	__e;					\
+})
+
+/* TODO: push into lsm.c ???? */
+
+/* revaliation, get/set attr, shutdown */
+int aa_sock_perm(int op, u32 request, struct socket *sock)
+{
+	AA_BUG(!sock);
+	AA_BUG(!sock->sk);
+	AA_BUG(in_interrupt());
+
+	return af_select(sock->sk->sk_family,
+			 sock_perm(op, request, sock),
+			 aa_sk_perm(op, request, sock->sk));
+}
+
+int aa_sock_create_perm(struct aa_label *label, int family, int type,
+			int protocol)
+{
+	AA_BUG(!label);
+	/* TODO: .... */
+	AA_BUG(in_interrupt());
+
+	return af_select(family,
+			 create_perm(label, family, type, protocol),
+			 aa_af_perm(OP_CREATE, AA_MAY_CREATE, label, family,
+				    type, protocol, NULL));
+}
+
+/* connect, bind */
+int aa_sock_addr_perm(int op, u32 request, struct socket *sock,
+		      struct sockaddr *address, int addrlen)
+{
+	AA_BUG(!sock);
+	AA_BUG(!sock->sk);
+	AA_BUG(!address);
+	/* TODO: .... */
+	AA_BUG(in_interrupt());
+
+	return af_select(sock->sk->sk_family,
+			 addr_perm(op, request, sock, address, addrlen),
+			 aa_sk_perm(op, request, sock->sk));
+}
+
+int aa_sock_listen_perm(struct socket *sock, int backlog)
+{
+	AA_BUG(!sock);
+	AA_BUG(!sock->sk);
+	/* TODO: .... */
+	AA_BUG(in_interrupt());
+
+	return af_select(sock->sk->sk_family,
+			 listen_perm(sock, backlog),
+			 aa_sk_perm(OP_LISTEN, AA_MAY_LISTEN, sock->sk));
+}
+
+/* ability of sock to connect, not peer address binding */
+int aa_sock_accept_perm(struct socket *sock, struct socket *newsock)
+{
+	AA_BUG(!sock);
+	AA_BUG(!sock->sk);
+	AA_BUG(!newsock);
+	/* TODO: .... */
+	AA_BUG(in_interrupt());
+
+	return af_select(sock->sk->sk_family,
+			 accept_perm(sock, newsock),
+			 aa_sk_perm(OP_ACCEPT, AA_MAY_ACCEPT, sock->sk));
+}
+
+/* sendmsg, recvmsg */
+int aa_sock_msg_perm(int op, u32 request, struct socket *sock,
+		     struct msghdr *msg, int size)
+{
+	AA_BUG(!sock);
+	AA_BUG(!sock->sk);
+	AA_BUG(!msg);
+	/* TODO: .... */
+	AA_BUG(in_interrupt());
+
+	return af_select(sock->sk->sk_family,
+			 msg_perm(op, request, sock, msg, size),
+			 aa_sk_perm(op, request, sock->sk));
+}
+
+/* revaliation, get/set attr, opt */
+int aa_sock_opt_perm(int op, u32 request, struct socket *sock, int level,
+		     int optname)
+{
+	AA_BUG(!sock);
+	AA_BUG(!sock->sk);
+	AA_BUG(in_interrupt());
+
+	return af_select(sock->sk->sk_family,
+			 opt_perm(op, request, sock, level, optname),
+			 aa_sk_perm(op, request, sock->sk));
 }

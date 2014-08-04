@@ -53,16 +53,19 @@
 #define AA_LINK_SUBSET		AA_MAY_LOCK	/* overlaid */
 
 
-#define PERMS_CHR_MASK (MAY_READ | MAY_WRITE | AA_MAY_CREATE |		\
-			AA_MAY_DELETE | AA_MAY_LINK | AA_MAY_LOCK |	\
-			AA_MAY_EXEC | AA_EXEC_MMAP | AA_MAY_APPEND)
+#define PERMS_CHRS_MASK (MAY_READ | MAY_WRITE | AA_MAY_CREATE |		\
+			 AA_MAY_DELETE | AA_MAY_LINK | AA_MAY_LOCK |	\
+			 AA_MAY_EXEC | AA_EXEC_MMAP | AA_MAY_APPEND)
 
-#define PERMS_NAME_MASK (PERMS_CHR_MASK | AA_MAY_OPEN | AA_MAY_RENAME |     \
-			 AA_MAY_SETATTR | AA_MAY_GETATTR | AA_MAY_SETCRED | \
-			 AA_MAY_GETCRED | AA_MAY_CHMOD | AA_MAY_CHOWN |     \
-			 AA_MAY_CHGRP | AA_MAY_MPROT | AA_MAY_SNAPSHOT |    \
-			 AA_MAY_STACK | AA_MAY_ONEXEC |			    \
-			 AA_MAY_CHANGE_PROFILE | AA_MAY_CHANGEHAT)
+#define PERMS_NAMES_MASK (PERMS_CHRS_MASK | AA_MAY_OPEN | AA_MAY_RENAME |     \
+			  AA_MAY_SETATTR | AA_MAY_GETATTR | AA_MAY_SETCRED | \
+			  AA_MAY_GETCRED | AA_MAY_CHMOD | AA_MAY_CHOWN | \
+			  AA_MAY_CHGRP | AA_MAY_MPROT | AA_MAY_SNAPSHOT | \
+			  AA_MAY_STACK | AA_MAY_ONEXEC |		\
+			  AA_MAY_CHANGE_PROFILE | AA_MAY_CHANGEHAT)
+
+extern const char aa_file_perm_chrs[];
+extern const char *aa_file_perm_names[];
 
 
 struct aa_perms {
@@ -134,9 +137,10 @@ struct aa_perms {
 
 #define FINAL_CHECK true
 
-void aa_perm_mask_to_str(char *str, u32 mask);
+void aa_perm_mask_to_str(char *str, const char *chrs, u32 mask);
 void aa_audit_perm_names(struct audit_buffer *ab, const char **names, u32 mask);
-void aa_audit_perm_mask(struct audit_buffer *ab, u32 mask);
+void aa_audit_perm_mask(struct audit_buffer *ab, u32 mask, const char *chrs,
+			u32 chrsmask, const char **names, u32 namesmask);
 void aa_apply_modes_to_perms(struct aa_profile *profile,
 			     struct aa_perms *perms);
 void aa_compute_perms(struct aa_dfa *dfa, unsigned int state,

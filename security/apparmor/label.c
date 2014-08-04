@@ -93,6 +93,27 @@ int aa_label_next_confined(struct aa_label *l, int i)
 	return i;
 }
 
+static int label_profile_pos(struct aa_label *l, struct aa_profile *profile)
+{
+	struct aa_profile *p;
+	struct label_it i;
+
+	AA_BUG(!profile);
+	AA_BUG(!l);
+
+	label_for_each(i, l, p) {
+		if (p == profile)
+			return i.i;
+	}
+
+	return -1;
+}
+
+static bool profile_in_label(struct aa_profile *profile, struct aa_label *l)
+{
+	return label_profile_pos(l, profile) != -1;
+}
+
 static bool label_profiles_unconfined(struct aa_label *label)
 {
 	struct aa_profile *profile;
@@ -769,6 +790,39 @@ static int label_merge_cmp(struct aa_label *a, struct aa_label *b,
 	else if (k < z->size)
 		return -1;
 	return 0;
+}
+
+/**
+ * label_merge_len - find the length of the merge of @a and @b
+ * @a: label to merge (NOT NULL)
+ * @b: label to merge (NOT NULL)
+ *
+ * Assumes: using newest versions of labels @a and @b
+ *
+ * Returns: length of a label vector for merge of @a and @b
+ */
+static int label_merge_len(struct aa_label *a, struct aa_label *b)
+{
+	int len = a->size + b->size;
+	int i, j;
+
+	AA_BUG(!a);
+	AA_BUG(!b);
+
+	/* find entries in common and remove from count */
+	for (i = j = 0; i < a->size && j < b->size; ) {
+		int res = profile_cmp(a->ent[i], b->ent[j]);
+		if (res == 0) {
+			len--;
+			i++;
+			j++;
+		} else if (res < 0)
+			i++;
+		else
+			j++;
+	}
+
+	return len;
 }
 
 /**

@@ -25,6 +25,7 @@
 #include <linux/user_namespace.h>
 #include <net/sock.h>
 
+#include "include/af_unix.h"
 #include "include/apparmor.h"
 #include "include/apparmorfs.h"
 #include "include/audit.h"
@@ -321,6 +322,8 @@ static int apparmor_path_rmdir(struct path *dir, struct dentry *dentry)
 static int apparmor_path_mknod(struct path *dir, struct dentry *dentry,
 			       umode_t mode, unsigned int dev)
 {
+if (!path_mediated_fs(dir->dentry->d_inode))
+printk("apparmor mknod on a %s mediated fs? %d\n", aa_imode_name(mode), path_mediated_fs(dir->dentry->d_inode));
 	return common_perm_create(OP_MKNOD, dir, dentry, AA_MAY_CREATE, mode);
 }
 
@@ -472,7 +475,26 @@ static int common_file_perm(int op, struct file *file, u32 mask)
 
 static int apparmor_file_receive(struct file *file)
 {
-	return common_file_perm(OP_FRECEIVE, file, aa_map_file_to_perms(file));
+	struct aa_file_cxt *fcxt = file_cxt(file);
+	struct aa_label *label;
+	int error;
+
+int foo = 0;
+label = aa_begin_current_label();
+
+rcu_read_lock();
+if (label != rcu_dereference(fcxt->label)) {
+	foo = 1;
+	printk("apparmor %s received file with labeling ", label->hname);
+	aa_label_printk(labels_ns(label), rcu_dereference(fcxt->label), false, GFP_ATOMIC);
+ }
+rcu_read_unlock();
+aa_end_current_label(label);
+
+	error = common_file_perm(OP_FRECEIVE, file, aa_map_file_to_perms(file));
+if (foo)
+printk(" result %d\n", error);
+	return error;
 }
 
 static int apparmor_file_permission(struct file *file, int mask)
@@ -738,6 +760,7 @@ static int apparmor_sk_alloc_security(struct sock *sk, int family, gfp_t flags)
 		return -ENOMEM;
 
 	SK_CXT(sk) = cxt;
+	//??? set local too current???
 
 	return 0;
 }
@@ -768,47 +791,34 @@ static void apparmor_sk_clone_security(const struct sock *sk,
 	new->peer = aa_get_label(cxt->peer);
 }
 
-#include <net/af_unix.h>
-#define UNIX_ANONYMOUS(U) (!unix_sk(U)->addr)
-/* from net/af_unix.c */
-#define UNIX_FS(U) (!UNIX_ANONYMOUS(U) && unix_sk(U)->addr->name->sun_path[0])
-
-static int unix_fs_perm(int op, struct aa_label *label, struct sock *sk,
-			u32 mask)
-{
-	if (!LABEL_MEDIATES(label, AA_CLASS_FILE))
-		return 0;
-
-	if (!unconfined(label) && UNIX_FS(sk)) {
-		struct unix_sock *u = unix_sk(sk);
-
-		/* the sunpath may not be valid for this ns so use the path */
-		struct path_cond cond = { u->path.dentry->d_inode->i_uid,
-					  u->path.dentry->d_inode->i_mode
-		};
-
-		return aa_path_perm(op, label, &u->path, 0, mask, &cond);
-	}
-	return 0;
-}
-
 /**
  * apparmor_unix_stream_connect - check perms before making unix domain conn
  *
- * other is locked when this hook is called
+ * peer is locked when this hook is called
  */
-static int apparmor_unix_stream_connect(struct sock *sock, struct sock *other,
+static int apparmor_unix_stream_connect(struct sock *sk, struct sock *peer_sk,
 					struct sock *newsk)
 {
-	struct aa_sk_cxt *sock_cxt = SK_CXT(sock);
-	struct aa_sk_cxt *other_cxt = SK_CXT(other);
+	struct aa_sk_cxt *sk_cxt = SK_CXT(sk);
+	struct aa_sk_cxt *peer_cxt = SK_CXT(peer_sk);
 	struct aa_sk_cxt *new_cxt = SK_CXT(newsk);
 	struct aa_label *label;
 	int error;
 
 	label = aa_begin_current_label();
-	error = unix_fs_perm(OP_CONNECT, label, other,
-			     MAY_READ | MAY_WRITE);
+	if (!aa_label_is_subset(sk_cxt->label, label))
+printk("apparmor warning %s: !aa_label_is_subset(sk_cxt->label, label\n", __FUNCTION__);
+	error = aa_unix_peer_perm(OP_CONNECT, (AA_MAY_CONNECT | AA_MAY_SEND |
+					       AA_MAY_RECEIVE), label, sk,
+				  peer_sk);
+	if (!UNIX_FS(peer_sk)) {
+		int e = aa_unix_peer_perm(OP_CONNECT, (AA_MAY_ACCEPT |
+						       AA_MAY_SEND |
+						       AA_MAY_RECEIVE),
+					  peer_cxt->label, peer_sk, sk);
+		if (e)
+			error = e;
+	}
 	aa_end_current_label(label);
 
 	if (error)
@@ -816,14 +826,20 @@ static int apparmor_unix_stream_connect(struct sock *sock, struct sock *other,
 
 	/* Cross reference the peer labels for SO_PEERSEC */
 	if (new_cxt->peer) {
+		//printk("%s: new_cxt->peer\n", __FUNCTION__);
 		aa_put_label(new_cxt->peer);
 	}
-	if (sock_cxt->peer) {
-		aa_put_label(sock_cxt->peer);
+	if (sk_cxt->peer) {
+		//printk("%s: sock_cxt->peer\n", __FUNCTION__);
+		aa_put_label(sk_cxt->peer);
 	}
 
-	new_cxt->peer = aa_get_label(sock_cxt->label);
-	sock_cxt->peer = aa_get_label(other_cxt->label);
+	new_cxt->peer = aa_get_label(sk_cxt->label);
+	sk_cxt->peer = aa_get_label(peer_cxt->label);
+
+//     print_sk(sock);
+//     print_sk(other);
+//     print_sk(newsk);
 
 	return 0;
 }
@@ -832,23 +848,26 @@ static int apparmor_unix_stream_connect(struct sock *sock, struct sock *other,
  * apparmor_unix_may_send - check perms before conn or sending unix dgrams
  *
  * other is locked when this hook is called
+ *
+ * dgram connect calls may_send, peer setup but path not copied?????
  */
-static int apparmor_unix_may_send(struct socket *sock, struct socket *other)
+static int apparmor_unix_may_send(struct socket *sock, struct socket *peer)
 {
-	struct aa_sk_cxt *other_cxt = SK_CXT(other->sk);
+	struct aa_sk_cxt *peer_cxt = SK_CXT(peer->sk);
 	struct aa_label *label = aa_begin_current_label();
 	int error;
 
-	error = xcheck(unix_fs_perm(OP_SENDMSG, label, other->sk, MAY_WRITE),
-		       unix_fs_perm(OP_SENDMSG, other_cxt->label, sock->sk,
-				    MAY_READ));
+	error = xcheck(aa_unix_peer_perm(OP_SENDMSG, AA_MAY_SEND, label,
+					 sock->sk, peer->sk),
+		       aa_unix_peer_perm(OP_SENDMSG, AA_MAY_RECEIVE,
+					 peer_cxt->label, peer->sk, sock->sk));
 	aa_end_current_label(label);
 
 	return error;
 }
 
 /**
- * apparmor_socket_create - check perms before create a new socket
+ * apparmor_socket_create - check perms before creating a new socket
  */
 static int apparmor_socket_create(int family, int type, int protocol, int kern)
 {
@@ -858,27 +877,34 @@ static int apparmor_socket_create(int family, int type, int protocol, int kern)
 	if (kern || unconfined(label))
 		return 0;
 
-	return aa_net_perm(OP_CREATE, label, family, type, protocol, NULL);
+	return aa_sock_create_perm(label, family, type, protocol);
 }
 
 /**
  * apparmor_socket_post_create - setup the per-socket security struct
  *
- * Note: socket likely does not have sk here
- * sk labeling done in sock_graft
+ * Note:
+ * -   kernel sockets currently labeled unconfined but we may want to
+ *     move to a special kernel label
+ * -   socket likely does not have sk here, sk labeling done in sock_graft
  */
 static int apparmor_socket_post_create(struct socket *sock, int family,
 				       int type, int protocol, int kern)
 {
-	if (!kern) {
-		SOCK_CXT(sock) = aa_get_label(aa_current_label());
+	struct aa_label *label;
 
-		if (sock->sk) {
-			struct aa_sk_cxt *cxt = SK_CXT(sock->sk);
-			aa_put_label(cxt->label);
-			cxt->label = aa_get_label(aa_current_label());
-		}
+	if (kern)
+		label = aa_get_label(&current_ns()->unconfined->label);
+	else
+		label = aa_get_label(aa_current_label());
+
+	SOCK_CXT(sock) = label;
+	if (sock->sk) {
+		struct aa_sk_cxt *cxt = SK_CXT(sock->sk);
+		aa_put_label(cxt->label);
+		cxt->label = aa_get_label(aa_current_label());
 	}
+
 	return 0;
 }
 
@@ -888,9 +914,7 @@ static int apparmor_socket_post_create(struct socket *sock, int family,
 static int apparmor_socket_bind(struct socket *sock,
 				struct sockaddr *address, int addrlen)
 {
-	struct sock *sk = sock->sk;
-
-	return aa_revalidate_sk(OP_BIND, sk);
+	return aa_sock_addr_perm(OP_BIND, AA_MAY_BIND, sock, address, addrlen);
 }
 
 /**
@@ -899,9 +923,8 @@ static int apparmor_socket_bind(struct socket *sock,
 static int apparmor_socket_connect(struct socket *sock,
 				   struct sockaddr *address, int addrlen)
 {
-	struct sock *sk = sock->sk;
-
-	return aa_revalidate_sk(OP_CONNECT, sk);
+	return aa_sock_addr_perm(OP_CONNECT, AA_MAY_CONNECT, sock,
+				 address, addrlen);
 }
 
 /**
@@ -909,9 +932,7 @@ static int apparmor_socket_connect(struct socket *sock,
  */
 static int apparmor_socket_listen(struct socket *sock, int backlog)
 {
-	struct sock *sk = sock->sk;
-
-	return aa_revalidate_sk(OP_LISTEN, sk);
+	return aa_sock_listen_perm(sock, backlog);
 }
 
 /**
@@ -922,9 +943,7 @@ static int apparmor_socket_listen(struct socket *sock, int backlog)
  */
 static int apparmor_socket_accept(struct socket *sock, struct socket *newsock)
 {
-	struct sock *sk = sock->sk;
-
-	return aa_revalidate_sk(OP_ACCEPT, sk);
+	return aa_sock_accept_perm(sock, newsock);
 }
 
 /**
@@ -933,9 +952,14 @@ static int apparmor_socket_accept(struct socket *sock, struct socket *newsock)
 static int apparmor_socket_sendmsg(struct socket *sock,
 				   struct msghdr *msg, int size)
 {
-	struct sock *sk = sock->sk;
+	int error = aa_sock_msg_perm(OP_SENDMSG, AA_MAY_SEND, sock, msg, size);
+	if (!error) {
+		/* TODO: setup delegation on scm rights
+		   see smack for AF_INET, AF_INET6 */
+		;
+	}
 
-	return aa_revalidate_sk(OP_SENDMSG, sk);
+	return error;
 }
 
 /**
@@ -944,9 +968,7 @@ static int apparmor_socket_sendmsg(struct socket *sock,
 static int apparmor_socket_recvmsg(struct socket *sock,
 				   struct msghdr *msg, int size, int flags)
 {
-	struct sock *sk = sock->sk;
-
-	return aa_revalidate_sk(OP_RECVMSG, sk);
+	return aa_sock_msg_perm(OP_RECVMSG, AA_MAY_RECEIVE, sock, msg, size);
 }
 
 /**
@@ -954,9 +976,7 @@ static int apparmor_socket_recvmsg(struct socket *sock,
  */
 static int apparmor_socket_getsockname(struct socket *sock)
 {
-	struct sock *sk = sock->sk;
-
-	return aa_revalidate_sk(OP_GETSOCKNAME, sk);
+	return aa_sock_perm(OP_GETSOCKNAME, AA_MAY_GETATTR, sock);
 }
 
 /**
@@ -964,9 +984,7 @@ static int apparmor_socket_getsockname(struct socket *sock)
  */
 static int apparmor_socket_getpeername(struct socket *sock)
 {
-	struct sock *sk = sock->sk;
-
-	return aa_revalidate_sk(OP_GETPEERNAME, sk);
+	return aa_sock_perm(OP_GETPEERNAME, AA_MAY_GETATTR, sock);
 }
 
 /**
@@ -975,9 +993,8 @@ static int apparmor_socket_getpeername(struct socket *sock)
 static int apparmor_socket_getsockopt(struct socket *sock, int level,
 				      int optname)
 {
-	struct sock *sk = sock->sk;
-
-	return aa_revalidate_sk(OP_GETSOCKOPT, sk);
+	return aa_sock_opt_perm(OP_GETSOCKOPT, AA_MAY_GETOPT, sock,
+				level, optname);
 }
 
 /**
@@ -986,9 +1003,8 @@ static int apparmor_socket_getsockopt(struct socket *sock, int level,
 static int apparmor_socket_setsockopt(struct socket *sock, int level,
 				      int optname)
 {
-	struct sock *sk = sock->sk;
-
-	return aa_revalidate_sk(OP_SETSOCKOPT, sk);
+	return aa_sock_opt_perm(OP_SETSOCKOPT, AA_MAY_SETOPT, sock,
+				level, optname);
 }
 
 /**
@@ -996,13 +1012,24 @@ static int apparmor_socket_setsockopt(struct socket *sock, int level,
  */
 static int apparmor_socket_shutdown(struct socket *sock, int how)
 {
-	struct sock *sk = sock->sk;
-
-	return aa_revalidate_sk(OP_SOCK_SHUTDOWN, sk);
+	return aa_sock_perm(OP_SHUTDOWN, AA_MAY_SHUTDOWN, sock);
 }
 
-/* from net/af_unix.c */
-#define unix_peer(sk) (unix_sk(sk)->peer)
+/**
+ * apparmor_socket_sock_recv_skb - check perms before associating skb to sk
+ *
+ * Note: can not sleep maybe called with locks held
+
+dont want protocol specific in __skb_recv_datagram()
+to deny an incoming connection  socket_sock_rcv_skb()
+
+ */
+static int apparmor_socket_sock_rcv_skb(struct sock *sk, struct sk_buff *skb)
+{
+	/* TODO: */
+	return 0;
+}
+
 
 static struct aa_label *sk_peer_label(struct sock *sk)
 {
@@ -1083,16 +1110,19 @@ static int apparmor_socket_getpeersec_dgram(struct socket *sock,
 }
 
 /**
- * apparmor_sock_graft - set the sockets to the current_label
+ * apparmor_sock_graft - Initialize newly created socket
+ * @sk: child sock
+ * @parent: parent socket
  *
- * could set off of SOCK_CXT(parent) but need to track inode and we can
- * just
- * set sk security information off of current creating process label
+ * Note: could set off of SOCK_CXT(parent) but need to track inode and we can
+ *       just set sk security information off of current creating process label
+ * ??? in write_lock_bh, EAGAIN and no sleep
  */
 static void apparmor_sock_graft(struct sock *sk, struct socket *parent)
 {
 	struct aa_sk_cxt *cxt = SK_CXT(sk);
 	if (cxt->label) {
+		//printk("%s: cxt->label\n", __FUNCTION__);
 		aa_put_label(cxt->label);
 	}
 
@@ -1179,6 +1209,7 @@ static struct security_operations apparmor_ops = {
 	.socket_getsockopt =		apparmor_socket_getsockopt,
 	.socket_setsockopt =		apparmor_socket_setsockopt,
 	.socket_shutdown =		apparmor_socket_shutdown,
+	.socket_sock_rcv_skb =		apparmor_socket_sock_rcv_skb,
 	.socket_getpeersec_stream =	apparmor_socket_getpeersec_stream,
 	.socket_getpeersec_dgram =	apparmor_socket_getpeersec_dgram,
 	.sock_graft = 			apparmor_sock_graft,
