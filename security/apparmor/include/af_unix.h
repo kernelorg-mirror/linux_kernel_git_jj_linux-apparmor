@@ -96,9 +96,9 @@ do {			       \
 	aad(&NAME)->net.protocol = (P)
 
 
-int aa_unix_peer_perm(int op, u32 request, struct aa_label *label,
+int aa_unix_peer_perm(struct aa_label *label, int op, u32 request,
 		      struct sock *sk, struct sock *peer_sk);
-int aa_label_unix_sk_perm(struct aa_label *label, int op, u32 request,
+int aa_unix_label_sk_perm(struct aa_label *label, int op, u32 request,
 			  struct sock *sk);
 int aa_unix_sock_perm(int op, u32 request, struct socket *sock);
 int aa_unix_create_perm(struct aa_label *label, int family, int type,
@@ -111,5 +111,7 @@ int aa_unix_msg_perm(int op, u32 request, struct socket *sock,
 		     struct msghdr *msg, int size);
 int aa_unix_opt_perm(int op, u32 request, struct socket *sock, int level,
 		     int optname);
+int aa_unix_file_perm(struct aa_label *label, int op, u32 request,
+		      struct socket *sock);
 
 #endif /* __AA_AF_UNIX_H */

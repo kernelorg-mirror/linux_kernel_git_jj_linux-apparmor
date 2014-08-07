@@ -203,7 +203,7 @@ int aa_profile_af_perm(struct aa_profile *profile, int op, u16 family,
 	return audit_net(profile, op, family, type, protocol, sk, error);
 }
 
-int aa_af_perm(int op, u32 request, struct aa_label *label, u16 family,
+int aa_af_perm(struct aa_label *label, int op, u32 request, u16 family,
 	       int type, int protocol, struct sock *sk)
 {
 	struct aa_profile *profile;
@@ -213,16 +213,14 @@ int aa_af_perm(int op, u32 request, struct aa_label *label, u16 family,
 					   sk));
 }
 
-static int aa_sk_perm(int op, u32 request, struct sock *sk)
+static int aa_label_sk_perm(struct aa_label *label, int op, u32 request,
+			    struct sock *sk)
 {
 	struct aa_profile *profile;
-	struct aa_label *label;
 
+	AA_BUG(!label);
 	AA_BUG(!sk);
-	AA_BUG(in_interrupt());
 
-	/* TODO: switch to begin_current_label ???? */
-	label = aa_current_label();
 	if (unconfined(label))
 		return 0;
 
@@ -230,6 +228,19 @@ static int aa_sk_perm(int op, u32 request, struct sock *sk)
 			aa_profile_af_perm(profile, op, sk->sk_family,
 					   sk->sk_type, sk->sk_protocol,
 					   sk));
+
+}
+
+static int aa_sk_perm(int op, u32 request, struct sock *sk)
+{
+	struct aa_label *label;
+
+	AA_BUG(!sk);
+	AA_BUG(in_interrupt());
+
+	/* TODO: switch to begin_current_label ???? */
+	label = aa_current_label();
+	return aa_label_sk_perm(label, op, request, sk);
 }
 
 #define af_select(FAMILY, FN, DEF_FN)		\
@@ -268,7 +279,7 @@ int aa_sock_create_perm(struct aa_label *label, int family, int type,
 
 	return af_select(family,
 			 create_perm(label, family, type, protocol),
-			 aa_af_perm(OP_CREATE, AA_MAY_CREATE, label, family,
+			 aa_af_perm(label, OP_CREATE, AA_MAY_CREATE, family,
 				    type, protocol, NULL));
 }
 
@@ -339,4 +350,16 @@ int aa_sock_opt_perm(int op, u32 request, struct socket *sock, int level,
 	return af_select(sock->sk->sk_family,
 			 opt_perm(op, request, sock, level, optname),
 			 aa_sk_perm(op, request, sock->sk));
+}
+
+int aa_sock_file_perm(struct aa_label *label, int op, u32 request,
+		      struct socket *sock)
+{
+	AA_BUG(!label);
+	AA_BUG(!sock);
+	AA_BUG(!sock->sk);
+
+	return af_select(sock->sk->sk_family,
+			 file_perm(label, op, request, sock),
+			 aa_label_sk_perm(label, op, request, sock->sk));
 }

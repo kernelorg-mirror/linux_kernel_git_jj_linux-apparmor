@@ -81,7 +81,7 @@ extern struct aa_fs_entry aa_fs_entry_network[];
 void audit_net_cb(struct audit_buffer *ab, void *va);
 int aa_profile_af_perm(struct aa_profile *profile, int op, u16 family,
 		       int type, int protocol, struct sock *sk);
-int aa_af_perm(int op, u32 request, struct aa_label *label, u16 family,
+int aa_af_perm(struct aa_label *label, int op, u32 request, u16 family,
 	       int type, int protocol, struct sock *sk);
 int aa_sock_perm(int op, u32 request, struct socket *sock);
 int aa_sock_create_perm(struct aa_label *label, int family, int type,
@@ -94,6 +94,8 @@ int aa_sock_msg_perm(int op, u32 request, struct socket *sock,
 		     struct msghdr *msg, int size);
 int aa_sock_opt_perm(int op, u32 request, struct socket *sock, int level,
 		     int optname);
+int aa_sock_file_perm(struct aa_label *label, int op, u32 request,
+		      struct socket *sock);
 
 
 static inline void aa_free_net_rules(struct aa_net *new)

@@ -11,6 +11,8 @@
  * License.
  */
 
+#include <net/tcp_states.h>
+
 #include "include/af_unix.h"
 #include "include/apparmor.h"
 #include "include/context.h"
@@ -48,18 +50,25 @@ static unsigned int match_to_prot(struct aa_profile *profile,
 	buffer[1] = cpu_to_be16(protocol);
 	state = aa_dfa_match_len(profile->policy.dfa, state, (char *) &buffer,
 				 4);
-	*info = "failed type and protocol match";
-	return 0;
+	if (!state)
+		*info = "failed type and protocol match";
+	return state;
 }
 
 static unsigned int match_addr(struct aa_profile *profile, unsigned int state,
 			       struct sockaddr_un *addr, int addrlen)
 {
-	if (addr) {
-	  //len = unix_name_len(addrlen);
-		// ???
-	}
-	return 1;
+	if (addr)
+		/* include leading \0 */
+		state = aa_dfa_match_len(profile->policy.dfa, state,
+					 addr->sun_path,
+					 unix_abstract_name_len(addrlen));
+	else
+		state = aa_dfa_match_len(profile->policy.dfa, state, "\x01",
+					 1);
+	/* todo change to out of band */
+	state = aa_dfa_null_transition(profile->policy.dfa, state);
+	return state;
 }
 
 static unsigned int match_to_sk(struct aa_profile *profile,
@@ -68,12 +77,22 @@ static unsigned int match_to_sk(struct aa_profile *profile,
 {
 	state = match_to_prot(profile, state, u->sk.sk_type, u->sk.sk_protocol,
 			      info);
-	if (!state)
-		return state;
-
-	*info = "failed local address match";
-	state = match_addr(profile, state, u->addr->name, u->addr->len);
-	// ??? sk->label
+	if (state) {
+		struct sockaddr_un *addr = NULL;
+		int len = 0;
+		if (u->addr) {
+			addr = u->addr->name;
+			len = u->addr->len;
+		}
+		state = match_addr(profile, state, addr, len);
+		if (state) {
+			state = aa_dfa_null_transition(profile->policy.dfa,
+						       state);
+			if (!state)
+				*info = "failed local label match";
+		} else
+			*info = "failed local address match";
+	}
 
 	return state;
 }
@@ -88,10 +107,13 @@ static inline unsigned int match_to_cmd(struct aa_profile *profile,
 					char cmd, const char **info)
 {
 	state = match_to_sk(profile, state, u, info);
-	if (!state)
-		return state;
-	*info = "failed cmd selection match";
-	return aa_dfa_match_len(profile->policy.dfa, state, &cmd, 1);
+	if (state) {
+		state = aa_dfa_match_len(profile->policy.dfa, state, &cmd, 1);
+		if (!state)
+			*info = "failed cmd selection match";
+	}
+
+	return state;
 }
 
 static inline unsigned int match_to_peer(struct aa_profile *profile,
@@ -101,10 +123,12 @@ static inline unsigned int match_to_peer(struct aa_profile *profile,
 					 const char **info)
 {
 	state = match_to_cmd(profile, state, u, CMD_ADDR, info);
-	if (!state)
-		return state;
-	*info = "failed peer address match";
-	return match_addr(profile, state, addr, addrlen);
+	if (state) {
+		state = match_addr(profile, state, addr, addrlen);
+		if (!state)
+			*info = "failed peer address match";
+	}
+	return state;
 }
 
 static int do_perms(struct aa_profile *profile, unsigned int state, u32 request,
@@ -114,8 +138,6 @@ static int do_perms(struct aa_profile *profile, unsigned int state, u32 request,
 
 	AA_BUG(!profile);
 
-	if (state)
-		aad(sa)->info = NULL;
 	aa_compute_perms(profile->policy.dfa, state, &perms);
 	aa_apply_modes_to_perms(profile, &perms);
 perms.complain = 0xffffffff;
@@ -132,29 +154,14 @@ static int match_label(struct aa_profile *profile, struct aa_profile *peer,
 
 	aad(sa)->target = aa_peer_name(peer);
 
-	state = aa_dfa_match(profile->policy.dfa, state, aa_peer_name(peer));
+	if (state) {
+		state = aa_dfa_match(profile->policy.dfa, state, aa_peer_name(peer));
+		if (!state)
+			aad(sa)->info = "failed peer label match";
+	}
 	return do_perms(profile, state, request, sa);
 }
 
-/*
-no peer available here, and is we have a peer see above
-static int match_sk_addr(struct aa_profile *profile, unsigned int state,
-			 u32 request, struct unix_sock *u,
-			 struct sockaddr *addr, int addrlen,
-			 struct aa_label *peer, struct common_audit_data *sa)
-{
-	struct aa_profile *peerp;
-
-	aad(sa)->net.addr = unix_addr(addr);
-	aad(sa)->net.addrlen = addrlen;
-
-	state = match_to_sk(profile, u, state);
-	state = match_addr(profile, state, unix_addr(addr), addrlen);
-	return fn_for_each(peer, peerp,
-			   match_label(profile, peerp, state, request,
-				       sa));
-}
-*/
 
 /* unix sock creation comes before we know if the socket will be an fs
  * socket
@@ -205,7 +212,6 @@ static inline int profile_sk_perm(struct aa_profile *profile, int op,
 	AA_BUG(profile_unconfined(profile));
 
 	state = PROFILE_MEDIATES_AF(profile, AF_UNIX);
-printk("apparmor profile_sk_perm %d fs %d\n", state, UNIX_FS(sk));
 	if (state) {
 		DEFINE_AUDIT_UNIX(sa, op, sk, sk->sk_type, sk->sk_protocol);
 
@@ -218,7 +224,7 @@ printk("apparmor profile_sk_perm %d fs %d\n", state, UNIX_FS(sk));
 				  sk->sk_protocol, sk);
 }
 
-int aa_label_unix_sk_perm(struct aa_label *label, int op, u32 request,
+int aa_unix_label_sk_perm(struct aa_label *label, int op, u32 request,
 			  struct sock *sk)
 {
 	struct aa_profile *profile;
@@ -227,7 +233,7 @@ int aa_label_unix_sk_perm(struct aa_label *label, int op, u32 request,
 			profile_sk_perm(profile, op, request, sk));
 }
 		     
-/* revaliation, get/set attr, opt */
+/* revaliation, get/set attr */
 int aa_unix_sock_perm(int op, u32 request, struct socket *sock)
 {
 	struct aa_label *label = aa_current_label();
@@ -238,7 +244,7 @@ int aa_unix_sock_perm(int op, u32 request, struct socket *sock)
 		return unix_fs_perm(op, request, aa_current_label(),
 				    unix_sk(sock->sk));
 
-	return aa_label_unix_sk_perm(label, op, request, sock->sk);
+	return aa_unix_label_sk_perm(label, op, request, sock->sk);
 }
 
 static int profile_addr_perm(struct aa_profile *profile, int op, u32 request,
@@ -254,14 +260,9 @@ static int profile_addr_perm(struct aa_profile *profile, int op, u32 request,
 	AA_BUG(unix_addr_fs(addr, addrlen));
 
 	state = PROFILE_MEDIATES_AF(profile, AF_UNIX);
-printk("apparmor: profile_addr_perm state %d\n", state);
 	if (state) {
 		/* bind for abstract socket */
 		DEFINE_AUDIT_UNIX(sa, op, sk, sk->sk_type, sk->sk_protocol);
-/* TODO: address match */
-printk("apparmor_addr_perm: %s: ", profile->base.hname);
-print_unix_addr(unix_addr(addr), addrlen);
-printk("\n");
 		aad(&sa)->net.addr = unix_addr(addr);
 		aad(&sa)->net.addrlen = addrlen;
 
@@ -269,9 +270,6 @@ printk("\n");
 				      unix_addr(addr), addrlen,
 				      &aad(&sa)->info);
 		return do_perms(profile, state, request, &sa);
-
-//		return match_sk_addr(profile, state, request, unix_sk(sk), addr,
-//				     addrlen, &sa);
 	}
 
 	return aa_profile_af_perm(profile, op, sk->sk_family, sk->sk_type,
@@ -287,14 +285,12 @@ int aa_unix_addr_perm(int op, u32 request, struct socket *sock,
 
 	/* unix connections are also covered by the
 	 * - unix_stream_connect (stream) and unix_may_send hooks (dgram)
-	 * so we can short circuit here
-	 * For fs connect/bind are handled by mknod/open
+	 * - fs connect/bind are handled by mknod/open
 	 */
 	if (unconfined(label) || (request & AA_MAY_CONNECT) ||
 	    unix_addr_fs(address, addrlen))
 		return 0;
 		
-printk("apparmor unix_addr_perm %s %s\n", op_table[op], label->hname);
 	return fn_for_each_confined(label, profile,
 			profile_addr_perm(profile, op, request,
 					  sock->sk, address, addrlen));
@@ -321,7 +317,8 @@ static int profile_listen_perm(struct aa_profile *profile, struct sock *sk,
 		if (state) {
 			state = aa_dfa_match_len(profile->policy.dfa, state,
 						 (char *) &b, 2);
-			aad(&sa)->info = "failed listen backlog match";
+			if (!state)
+				aad(&sa)->info = "failed listen backlog match";
 		}
 		return do_perms(profile, state, AA_MAY_LISTEN, &sa);
 	}
@@ -410,8 +407,12 @@ static int profile_opt_perm(struct aa_profile *profile, int op, u32 request,
 
 		state = match_to_cmd(profile, state, unix_sk(sk), CMD_OPT,
 				     &aad(&sa)->info);
-		state = aa_dfa_match_len(profile->policy.dfa, state,
-					 (char *) &b, 2);
+		if (state) {
+			state = aa_dfa_match_len(profile->policy.dfa, state,
+						 (char *) &b, 2);
+			if (!state)
+				aad(&sa)->info = "failed sockopt match";
+		}
 		return do_perms(profile, state, request, &sa);
 	}
 
@@ -448,23 +449,45 @@ static int profile_peer_perm(struct aa_profile *profile, int op, u32 request,
 
 	state = PROFILE_MEDIATES_AF(profile, AF_UNIX);
 	if (state) {
+		struct aa_sk_cxt *peer_cxt = SK_CXT(peer_sk);
+		struct aa_profile *peerp;
+		struct sockaddr_un *addr = NULL;
+		int len = 0;
+		if (unix_sk(peer_sk)->addr) {
+			addr = unix_sk(peer_sk)->addr->name;
+			len = unix_sk(peer_sk)->addr->len;
+		}
 		state = match_to_peer(profile, state, unix_sk(sk),
-				      unix_sk(peer_sk)->addr->name,
-				      unix_sk(peer_sk)->addr->len,
-				      &aad(sa)->info);
-/* TODO: address match */
-printk("apparmor_addr_perm: %s: ", profile->base.hname);
-print_unix_addr(unix_sk(peer_sk)->addr->name, unix_sk(peer_sk)->addr->len);
-printk("\n");
-// TODO: label match
-		return do_perms(profile, state, request, sa);
+				      addr, len, &aad(sa)->info);
+		return fn_for_each(peer_cxt->label, peerp,
+				   match_label(profile, peerp, state, request,
+					       sa));
 	}
 
 	return aa_profile_af_perm(profile, op, sk->sk_family, sk->sk_type,
 				  sk->sk_protocol, sk);
 }
 
-int aa_unix_peer_perm(int op, u32 request, struct aa_label *label,
+/* Need to do
+ * addr, sk for reverse, based off of stored addr, and peer_label
+
+static int profile_peer_perm(struct aa_profile *profile, int op, u32 request,
+			     struct sock *sk, struct sock *peer_sk,
+			     struct common_audit_data *sa)
+{
+	peer_label = sk_peer_label(sk);
+	sk->addr->path, sk->addr->len;
+
+// on connect the addr is shared newsk gets listening sk addr
+	int e = xcheck(aa_unix_peer_perm(label, op, MAY_READ | MAY_WRITE,
+					 sock->sk, peer_sk),
+		       aa_unix_peer_rev(peer_label, op, MAY_READ | MAY_WRITE,
+					sk->addr->path, sk->addr->len,
+					 label, sk->addr->path, sk->addr-len)
+}
+*/
+
+int aa_unix_peer_perm(struct aa_label *label, int op, u32 request,
 		      struct sock *sk, struct sock *peer_sk)
 {
 	struct unix_sock *peeru = unix_sk(peer_sk);
@@ -487,4 +510,46 @@ int aa_unix_peer_perm(int op, u32 request, struct aa_label *label,
 	}
 
 	return unix_fs_perm(op, request, label, peeru);
+}
+
+int aa_unix_file_perm(struct aa_label *label, int op, u32 request,
+		      struct socket *sock)
+{
+	struct sock *peer_sk;
+	int error;
+
+	AA_BUG(!label);
+	AA_BUG(!sock);
+	AA_BUG(!sock->sk);
+	AA_BUG(sock->sk->sk_family != AF_UNIX);
+
+	/* TODO: update sock label with new task label */
+	unix_state_lock(sock->sk);
+	peer_sk = unix_peer(sock->sk);
+	error = aa_unix_label_sk_perm(label, op, request, sock->sk);
+	if (!peer_sk || sock->sk->sk_state != TCP_ESTABLISHED ) {
+//	       printk("apparmor: file revalidate of unconnected unix sock\n");
+					;
+	} else {
+		struct aa_sk_cxt *pcxt = SK_CXT(peer_sk);
+		/* TODO: fixme to only use local sock for addr, peer */
+/*
+		int e = xcheck(aa_unix_peer_perm(label, op,
+						 MAY_READ | MAY_WRITE,
+						 sock->sk, peer_sk),
+			       aa_unix_peer_perm(pcxt->label,
+						 op, MAY_READ | MAY_WRITE,
+						 peer_sk, sock->sk));
+		if (e)
+			error = e;
+*/
+//	       printk("apparmor: file revalidate of connected unix sock\n");
+		/* GAH double lock can't be used here
+		   unix_state_double_lock(sock->sk, peer_sk);
+		   unix_state_double_unlock(sock->sk, peer_sk);
+		*/
+	}
+	unix_state_unlock(sock->sk);
+
+	return error;
 }

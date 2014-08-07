@@ -640,54 +640,29 @@ should have cross check in connect
 
 hrmm perhaps should refactor socket perm check before  doing this patch
 */
-       struct socket *sock = (struct socket *) file->private_data;
+		struct socket *sock = (struct socket *) file->private_data;
+/*
        printk("apparmor: need to revalidate socket %p allow 0x%x denied 0x%x subset %d label: ", sock, fcxt->allow, denied, aa_label_is_subset(flabel, label));
        aa_label_printk(current_ns(), label, false, GFP_ATOMIC);
        printk(" flabel: ");
        aa_label_printk(current_ns(), flabel, false, GFP_ATOMIC);
-       if (sock) {
-               struct aa_sk_cxt *sk_cxt = SK_CXT(sock->sk);
+*/
+		if (sock) {
+			error = aa_sock_file_perm(label, op, request, sock);
+/*
                printk(" slabel: ");
                aa_label_printk(current_ns(), sk_cxt->label, false, GFP_ATOMIC);
                printk(" ");
                print_sk(sock->sk);
-	       /* TODO: update sock label with new task label */
-               if (sock->sk->sk_family == AF_UNIX) {
-		       unix_state_lock(sock->sk);
-		       struct sock *peer_sk;
-		       peer_sk = unix_peer(sock->sk);
-		       if (peer_sk) {
-			       sock_hold(peer_sk);
-		       } else {
-			       printk("apparmor: file revalidate of unconnected unix sock\n");
-			       error = aa_label_unix_sk_perm(label, op, request, sock->sk);
-		       }
-                       unix_state_unlock(sock->sk);
-		       if (peer_sk) {
-			       struct aa_sk_cxt *pcxt = SK_CXT(peer_sk);
-			       u32 rreq = 0;
-			       if (request & AA_MAY_READ)
-				       rreq = AA_MAY_WRITE;
-			       if (request & AA_MAY_WRITE)
-				       rreq |= AA_MAY_READ;
-			       unix_state_double_lock(sock->sk, peer_sk);
-			       printk("apparmor: file revalidate of connected unix sock\n");
-			       error = xcheck(aa_unix_peer_perm(op, request,
-								label, sock->sk,
-								peer_sk),
-					      aa_unix_peer_perm(op, rreq,
-								pcxt->label,
-								peer_sk, sock->sk));
-			       unix_state_double_unlock(sock->sk, peer_sk);
-			       sock_put(peer_sk);
-		       }
-               }
-       } else
-               printk("no sock\n");
-  } else {
+*/
+		} else
+			printk("no sock\n");
+	} else {
 char *s = aa_imode_name(file_inode(file)->i_mode);
 if (file_inode(file)->i_sb->s_magic != PIPEFS_MAGIC && file_inode(file)->i_sb->s_magic != ANON_INODE_FS_MAGIC)
+	; /*
   printk("apparmor: revalidation of non-mediated file. denied 0x%x mnt? %p (%s) label: (%p) magic 0x%x\n", denied, file->f_path.mnt, s, label, file_inode(file)->i_sb->s_magic);
+	  */
   }
 done:
 	rcu_read_unlock();

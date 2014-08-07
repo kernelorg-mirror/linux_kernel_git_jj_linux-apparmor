@@ -808,14 +808,13 @@ static int apparmor_unix_stream_connect(struct sock *sk, struct sock *peer_sk,
 	label = aa_begin_current_label();
 	if (!aa_label_is_subset(sk_cxt->label, label))
 printk("apparmor warning %s: !aa_label_is_subset(sk_cxt->label, label\n", __FUNCTION__);
-	error = aa_unix_peer_perm(OP_CONNECT, (AA_MAY_CONNECT | AA_MAY_SEND |
-					       AA_MAY_RECEIVE), label, sk,
-				  peer_sk);
+	error = aa_unix_peer_perm(label, OP_CONNECT,
+				(AA_MAY_CONNECT | AA_MAY_SEND | AA_MAY_RECEIVE),
+				sk, peer_sk);
 	if (!UNIX_FS(peer_sk)) {
-		int e = aa_unix_peer_perm(OP_CONNECT, (AA_MAY_ACCEPT |
-						       AA_MAY_SEND |
-						       AA_MAY_RECEIVE),
-					  peer_cxt->label, peer_sk, sk);
+		int e = aa_unix_peer_perm(peer_cxt->label, OP_CONNECT,
+				(AA_MAY_ACCEPT | AA_MAY_SEND | AA_MAY_RECEIVE),
+				peer_sk, sk);
 		if (e)
 			error = e;
 	}
@@ -857,10 +856,10 @@ static int apparmor_unix_may_send(struct socket *sock, struct socket *peer)
 	struct aa_label *label = aa_begin_current_label();
 	int error;
 
-	error = xcheck(aa_unix_peer_perm(OP_SENDMSG, AA_MAY_SEND, label,
+	error = xcheck(aa_unix_peer_perm(label, OP_SENDMSG, AA_MAY_SEND,
 					 sock->sk, peer->sk),
-		       aa_unix_peer_perm(OP_SENDMSG, AA_MAY_RECEIVE,
-					 peer_cxt->label, peer->sk, sock->sk));
+		       aa_unix_peer_perm(peer_cxt->label, OP_SENDMSG, AA_MAY_RECEIVE,
+					 peer->sk, sock->sk));
 	aa_end_current_label(label);
 
 	return error;

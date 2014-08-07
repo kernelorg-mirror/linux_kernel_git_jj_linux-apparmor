@@ -273,6 +273,7 @@ static inline unsigned int PROFILE_MEDIATES_SAFE(struct aa_profile *profile,
 
 static inline unsigned int PROFILE_MEDIATES_AF(struct aa_profile *profile,
 					       u16 AF) {
+  return profile->policy.dfa != NULL;
 	unsigned int state = PROFILE_MEDIATES(profile, AA_CLASS_NET);
 	u16 be_af = cpu_to_be16(AF);
 	if (!state)
