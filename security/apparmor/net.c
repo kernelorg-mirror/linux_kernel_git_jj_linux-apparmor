@@ -74,10 +74,19 @@ static const char *net_mask_names[] = {
 static void audit_unix_addr(struct audit_buffer *ab, const char *str,
 			    struct sockaddr_un *addr, int addrlen)
 {
-	int len = unix_abstract_name_len(addrlen);
+	int len = unix_addr_len(addrlen);
 
-	audit_log_format(ab, " %s=\"@", str);
-	audit_log_n_untrustedstring(ab, &addr->sun_path[1], len);
+	if (len <= 0) {
+		audit_log_format(ab, " %s=anonymous", str);
+	} else if (addr->sun_path[0]) {
+		audit_log_format(ab, " %s=\"", str);
+		audit_log_untrustedstring(ab, addr->sun_path);
+		audit_log_format(ab, "\"");
+	} else {
+		audit_log_format(ab, " %s=\"@", str);
+		audit_log_n_untrustedstring(ab, &addr->sun_path[1], len);
+		audit_log_format(ab, "\"");
+	}
 }
 
 static void audit_unix_sk_addr(struct audit_buffer *ab, const char *str,

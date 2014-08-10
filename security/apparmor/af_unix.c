@@ -62,7 +62,7 @@ static unsigned int match_addr(struct aa_profile *profile, unsigned int state,
 		/* include leading \0 */
 		state = aa_dfa_match_len(profile->policy.dfa, state,
 					 addr->sun_path,
-					 unix_abstract_name_len(addrlen));
+					 unix_addr_len(addrlen));
 	else
 		state = aa_dfa_match_len(profile->policy.dfa, state, "\x01",
 					 1);
@@ -232,7 +232,7 @@ int aa_unix_label_sk_perm(struct aa_label *label, int op, u32 request,
 	return fn_for_each_confined(label, profile,
 			profile_sk_perm(profile, op, request, sk));
 }
-		     
+
 /* revaliation, get/set attr */
 int aa_unix_sock_perm(int op, u32 request, struct socket *sock)
 {
@@ -290,7 +290,7 @@ int aa_unix_addr_perm(int op, u32 request, struct socket *sock,
 	if (unconfined(label) || (request & AA_MAY_CONNECT) ||
 	    unix_addr_fs(address, addrlen))
 		return 0;
-		
+
 	return fn_for_each_confined(label, profile,
 			profile_addr_perm(profile, op, request,
 					  sock->sk, address, addrlen));
@@ -445,7 +445,7 @@ static int profile_peer_perm(struct aa_profile *profile, int op, u32 request,
 	AA_BUG(profile_unconfined(profile));
 	AA_BUG(!sk);
 	AA_BUG(!peer_sk);
-	AA_BUG(UNIX_FS(sk));
+	AA_BUG(UNIX_FS(peer_sk));
 
 	state = PROFILE_MEDIATES_AF(profile, AF_UNIX);
 	if (state) {
@@ -490,6 +490,10 @@ static int profile_peer_perm(struct aa_profile *profile, int op, u32 request,
 int aa_unix_peer_perm(struct aa_label *label, int op, u32 request,
 		      struct sock *sk, struct sock *peer_sk)
 {
+	AA_BUG(!label);
+	AA_BUG(!sk);
+	AA_BUG(!peer_sk);
+
 	struct unix_sock *peeru = unix_sk(peer_sk);
 	if (!UNIX_FS(peeru)) {
 		struct aa_profile *profile;
@@ -525,13 +529,18 @@ int aa_unix_file_perm(struct aa_label *label, int op, u32 request,
 
 	/* TODO: update sock label with new task label */
 	unix_state_lock(sock->sk);
+	if (UNIX_FS(sock->sk)) {
+		/* not fs to the aa_file_perm code, but file here */
+		error = unix_fs_perm(op, request, label, unix_sk(sock->sk));
+		goto out;
+	}
 	peer_sk = unix_peer(sock->sk);
 	error = aa_unix_label_sk_perm(label, op, request, sock->sk);
 	if (!peer_sk || sock->sk->sk_state != TCP_ESTABLISHED ) {
 //	       printk("apparmor: file revalidate of unconnected unix sock\n");
 					;
 	} else {
-		struct aa_sk_cxt *pcxt = SK_CXT(peer_sk);
+//		struct aa_sk_cxt *pcxt = SK_CXT(peer_sk);
 		/* TODO: fixme to only use local sock for addr, peer */
 /*
 		int e = xcheck(aa_unix_peer_perm(label, op,
@@ -549,6 +558,7 @@ int aa_unix_file_perm(struct aa_label *label, int op, u32 request,
 		   unix_state_double_unlock(sock->sk, peer_sk);
 		*/
 	}
+out:
 	unix_state_unlock(sock->sk);
 
 	return error;
