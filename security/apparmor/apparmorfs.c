@@ -817,7 +817,6 @@ static struct aa_profile *__next_profile(struct aa_profile *p)
 	struct aa_profile *parent;
 	struct aa_namespace *ns = p->ns;
 
-	AA_BUG(!p);
 	AA_BUG(!mutex_is_locked(&profiles_ns(p)->lock));
 
 	/* is next profile a child */

@@ -377,9 +377,9 @@ void aa_perms_accum(struct aa_perms *accum, struct aa_perms *addend)
 	accum->kill |= addend->kill & ~accum->allow;
 	accum->stop |= addend->stop & ~accum->allow;
 	accum->complain |= addend->complain & ~accum->allow & ~accum->deny;
-	accum->cond |= addend->cond & ~addend->allow & ~addend->deny;
+	accum->cond |= addend->cond & ~accum->allow & ~accum->deny;
 	accum->hide &= addend->hide & ~accum->allow;
-	accum->prompt |= addend->prompt & ~addend->allow & ~addend->deny;
+	accum->prompt |= addend->prompt & ~accum->allow & ~accum->deny;
 }
 
 void aa_profile_match_label(struct aa_profile *profile, const char *label,

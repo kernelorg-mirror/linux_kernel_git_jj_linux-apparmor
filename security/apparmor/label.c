@@ -474,7 +474,7 @@ static int profile_cmp(struct aa_profile *a, struct aa_profile *b)
  * label_vec_cmp - label comparision for set ordering
  * @a: label to compare (NOT NULL)
  * @vec: vector of profiles to compare (NOT NULL)
- * @n: length of @vev
+ * @n: length of @vec
  *
  * Returns: <0  if a < vec
  *          ==0 if a == vec
@@ -1096,6 +1096,8 @@ struct aa_label *aa_label_vec_merge(struct aa_profile **vec, int len,
 	struct aa_label *label = NULL;
 	struct aa_labelset *ls;
 	unsigned long flags;
+	struct aa_label *new;
+	int i;
 
 	AA_BUG(!vec);
 
@@ -1107,26 +1109,21 @@ struct aa_label *aa_label_vec_merge(struct aa_profile **vec, int len,
 	/* TODO: enable when read side is lockless
 	 * check if label exists before taking locks
 	 */
+	new = aa_label_alloc(len, gfp);
+	if (!new)
+		return NULL;
 
-	if (!label) {
-		struct aa_label *new;
-		int i;
-
-		new = aa_label_alloc(len, gfp);
-		if (!new)
-			return NULL;
-
-		write_lock_irqsave(&ls->lock, flags);
-		for (i = 0; i < len; i++) {
-			new->ent[i] = aa_get_profile(vec[i]);
-			label = __aa_label_insert(ls, new);
-			if (label != new)
-				/* not fully constructed don't put */
-				aa_label_free(new);
-		}
-		write_unlock_irqrestore(&ls->lock, flags);
-		aa_put_label(new);		/* extra count */
+	write_lock_irqsave(&ls->lock, flags);
+	for (i = 0; i < len; i++) {
+		new->ent[i] = aa_get_profile(vec[i]);
+		label = __aa_label_insert(ls, new);
 	}
+	write_unlock_irqrestore(&ls->lock, flags);
+	if (label != new)
+		/* not fully constructed don't put */
+		aa_label_free(new);
+	else
+		aa_put_label(new);		/* extra count */
 
 	return label;
 }
