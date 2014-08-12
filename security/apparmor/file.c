@@ -279,11 +279,12 @@ unsigned int aa_str_perms(struct aa_dfa *dfa, unsigned int start,
 }
 
 static int path_perm(int op, struct aa_profile *profile, const char *name,
-		     u32 request, struct path_cond *cond,
+		     u32 request, struct path_cond *cond, int flags,
 		     struct file_perms *perms)
 {
 	int e = 0;
-	if (profile_unconfined(profile))
+	if (profile_unconfined(profile) ||
+	    ((flags & PATH_SOCK_COND) && !PROFILE_MEDIATES_AF(profile, AF_UNIX)))
 		return 0;
 	aa_str_perms(profile->file.dfa, profile->file.start, name, cond, perms);
 	if (request & ~perms->allow)
@@ -323,7 +324,8 @@ int aa_path_perm(int op, struct aa_label *label, struct path *path,
 		goto out;
 
 	error = fn_for_each_confined(label, profile,
-			path_perm(op, profile, name, request, cond, &perms));
+			path_perm(op, profile, name, request, cond, flags,
+				  &perms));
 
 out:
 	put_buffers(buffer);
@@ -532,7 +534,7 @@ static int __file_path_perm(int op, struct aa_label *label,
 	/* TODO: skip checking profiles already cached on flabel */
 	error = fn_for_each_confined(label, profile,
 				path_perm(op, profile, name, request, &cond,
-					  &perms));
+					  0, &perms));
 	if (error)
 		goto out;
 
@@ -545,7 +547,7 @@ static int __file_path_perm(int op, struct aa_label *label,
 		/* TODO: don't audit here */
 		int e = fn_for_each_not_in_set(label, flabel, profile,
 				path_perm(op, profile, name, request, &cond,
-					  &perms));
+					  0, &perms));
 		if (e)
 			goto out;
 	}

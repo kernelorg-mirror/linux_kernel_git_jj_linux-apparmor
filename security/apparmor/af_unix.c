@@ -18,10 +18,11 @@
 #include "include/context.h"
 #include "include/file.h"
 #include "include/label.h"
+#include "include/path.h"
 #include "include/policy.h"
 
 static inline int unix_fs_perm(int op, u32 mask, struct aa_label *label,
-			       struct unix_sock *u)
+			       struct unix_sock *u, int flags)
 {
 	AA_BUG(!label);
 	AA_BUG(!u);
@@ -33,7 +34,7 @@ static inline int unix_fs_perm(int op, u32 mask, struct aa_label *label,
 					  u->path.dentry->d_inode->i_mode
 		};
 
-		return aa_path_perm(op, label, &u->path, 0, mask & NET_FS_PERMS,
+		return aa_path_perm(op, label, &u->path, flags, mask & NET_FS_PERMS,
 				    &cond);
 	}
 
@@ -242,7 +243,7 @@ int aa_unix_sock_perm(int op, u32 request, struct socket *sock)
 		return 0;
 	if (UNIX_FS(sock->sk))
 		return unix_fs_perm(op, request, aa_current_label(),
-				    unix_sk(sock->sk));
+				    unix_sk(sock->sk), 0);
 
 	return aa_unix_label_sk_perm(label, op, request, sock->sk);
 }
@@ -513,7 +514,7 @@ int aa_unix_peer_perm(struct aa_label *label, int op, u32 request,
 						  peer_sk, &sa));
 	}
 
-	return unix_fs_perm(op, request, label, peeru);
+	return unix_fs_perm(op, request, label, peeru, 0);
 }
 
 int aa_unix_file_perm(struct aa_label *label, int op, u32 request,
@@ -531,7 +532,8 @@ int aa_unix_file_perm(struct aa_label *label, int op, u32 request,
 	unix_state_lock(sock->sk);
 	if (UNIX_FS(sock->sk)) {
 		/* not fs to the aa_file_perm code, but file here */
-		error = unix_fs_perm(op, request, label, unix_sk(sock->sk));
+		error = unix_fs_perm(op, request, label, unix_sk(sock->sk),
+				     PATH_SOCK_COND);
 		goto out;
 	}
 	peer_sk = unix_peer(sock->sk);
