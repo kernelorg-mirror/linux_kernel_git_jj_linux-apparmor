@@ -469,6 +469,34 @@ static int profile_peer_perm(struct aa_profile *profile, int op, u32 request,
 				  sk->sk_protocol, sk);
 }
 
+#if 0
+static int profile_peer_perm(struct aa_profile *profile, int op, u32 request,
+			     struct sock *sk, struct sockaddr_un *addr,
+			     int addrlen, struct aa_label *peer,
+			     struct common_audit_data *sa)
+{
+	unsigned int state;
+
+	AA_BUG(!profile);
+	AA_BUG(profile_unconfined(profile));
+	AA_BUG(!sk);
+	AA_BUG(!peer);
+
+	state = PROFILE_MEDIATES_AF(profile, AF_UNIX);
+	if (state) {
+		struct aa_profile *peerp;
+		state = match_to_peer(profile, state, unix_sk(sk),
+				      addr, addrlen, &aad(sa)->info);
+		return fn_for_each(peer, peerp,
+				   match_label(profile, peerp, state, request,
+					       sa));
+	}
+
+	return aa_profile_af_perm(profile, op, sk->sk_family, sk->sk_type,
+				  sk->sk_protocol, sk);
+}
+#endif
+
 /* Need to do
  * addr, sk for reverse, based off of stored addr, and peer_label
 
@@ -517,6 +545,33 @@ int aa_unix_peer_perm(struct aa_label *label, int op, u32 request,
 	return unix_fs_perm(op, request, label, peeru, 0);
 }
 
+
+/* from net/unix/af_unix.c */
+static void unix_state_double_lock(struct sock *sk1, struct sock *sk2)
+{
+	if (unlikely(sk1 == sk2) || !sk2) {
+		unix_state_lock(sk1);
+		return;
+	}
+	if (sk1 < sk2) {
+		unix_state_lock(sk1);
+		unix_state_lock_nested(sk2);
+	} else {
+		unix_state_lock(sk2);
+		unix_state_lock_nested(sk1);
+	}
+}
+
+static void unix_state_double_unlock(struct sock *sk1, struct sock *sk2)
+{
+	if (unlikely(sk1 == sk2) || !sk2) {
+		unix_state_unlock(sk1);
+		return;
+	}
+	unix_state_unlock(sk1);
+	unix_state_unlock(sk2);
+}
+
 int aa_unix_file_perm(struct aa_label *label, int op, u32 request,
 		      struct socket *sock)
 {
@@ -532,6 +587,7 @@ int aa_unix_file_perm(struct aa_label *label, int op, u32 request,
 	unix_state_lock(sock->sk);
 	if (unix_connected_fs(sock->sk)) {
 		/* not fs to the aa_file_perm code, but file here */
+printk("apparmor unix_file fs socket "); print_sk(sock->sk); printk("\n");
 		error = unix_fs_perm(op, request, label, unix_sk(sock->sk),
 				     PATH_SOCK_COND);
 		goto out;
