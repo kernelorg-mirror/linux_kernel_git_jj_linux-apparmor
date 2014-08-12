@@ -530,7 +530,7 @@ int aa_unix_file_perm(struct aa_label *label, int op, u32 request,
 
 	/* TODO: update sock label with new task label */
 	unix_state_lock(sock->sk);
-	if (UNIX_FS(sock->sk)) {
+	if (unix_connected_fs(sock->sk)) {
 		/* not fs to the aa_file_perm code, but file here */
 		error = unix_fs_perm(op, request, label, unix_sk(sock->sk),
 				     PATH_SOCK_COND);

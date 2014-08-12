@@ -35,6 +35,7 @@
 			  unix_sk(U)->addr->hash < UNIX_HASH_SIZE)
 #define UNIX_FS(U) (!UNIX_ANONYMOUS(U) && unix_sk(U)->addr->name->sun_path[0])
 #define unix_peer(sk) (unix_sk(sk)->peer)
+#define unix_connected_fs(U) ((unix_sk(U))->path.dentry)
 
 static inline void print_unix_addr(struct sockaddr_un *A, int L)
 {
