@@ -558,6 +558,35 @@ out:
 }
 
 #include <uapi/linux/magic.h>
+
+static int __file_sock_perm(int op, struct aa_label *label,
+			    struct aa_label *flabel, struct file *file,
+			    u32 request, u32 denied)
+{
+	struct socket *sock = (struct socket *) file->private_data;
+	int error;
+
+	AA_BUG(!sock);
+
+	/* revalidation due to label out of date. No revocation at this time */
+	if (!denied && aa_label_is_subset(flabel, label))
+		return 0;
+
+	/* TODO: improve to skip profiles cached in flabel */
+	error = aa_sock_file_perm(label, op, request, sock);
+	if (denied) {
+		/* TODO: improve to skip profiles checked above */
+		/* check every profile in file label to is cached */
+		int e = aa_sock_file_perm(flabel, op, request, sock);
+		if (e)
+			error = e;
+	}
+	if (!error)
+		update_file_cxt(file_cxt(file), label, request);
+
+	return error;
+}
+
 /**
  * aa_file_perm - do permission revalidation check & audit for @file
  * @op: operation being checked
@@ -602,41 +631,17 @@ int aa_file_perm(int op, struct aa_label *label, struct file *file,
 		error = __file_path_perm(op, label, flabel, file, request,
 					 denied);
 
-  } else if (S_ISSOCK(file_inode(file)->i_mode)) {
-/*
-we should be handling unix domain sockets differently than straight file_path
-need to cross check them based on peer address if we can?
-can we the sock peer is not locked.
-can we lock it
-
-should have cross check in connect
-
-hrmm perhaps should refactor socket perm check before  doing this patch
-*/
-		struct socket *sock = (struct socket *) file->private_data;
-/*
-       printk("apparmor: need to revalidate socket %p allow 0x%x denied 0x%x subset %d label: ", sock, fcxt->allow, denied, aa_label_is_subset(flabel, label));
-       aa_label_printk(current_ns(), label, false, GFP_ATOMIC);
-       printk(" flabel: ");
-       aa_label_printk(current_ns(), flabel, false, GFP_ATOMIC);
-*/
-		if (sock) {
-			error = aa_sock_file_perm(label, op, request, sock);
-/*
-               printk(" slabel: ");
-               aa_label_printk(current_ns(), sk_cxt->label, false, GFP_ATOMIC);
-               printk(" ");
-               print_sk(sock->sk);
-*/
-		} else
-			printk("no sock\n");
+	} else if (S_ISSOCK(file_inode(file)->i_mode)) {
+		error = __file_sock_perm(op, label, flabel, file, request,
+					 denied);
 	} else {
-char *s = aa_imode_name(file_inode(file)->i_mode);
-if (file_inode(file)->i_sb->s_magic != PIPEFS_MAGIC && file_inode(file)->i_sb->s_magic != ANON_INODE_FS_MAGIC)
-	; /*
-  printk("apparmor: revalidation of non-mediated file. denied 0x%x mnt? %p (%s) label: (%p) magic 0x%x\n", denied, file->f_path.mnt, s, label, file_inode(file)->i_sb->s_magic);
-	  */
-  }
+		char *s = aa_imode_name(file_inode(file)->i_mode);
+		if (file_inode(file)->i_sb->s_magic != PIPEFS_MAGIC && file_inode(file)->i_sb->s_magic != ANON_INODE_FS_MAGIC)
+			;
+/*
+printk("apparmor: revalidation of non-mediated file. denied 0x%x mnt? %p (%s) label: (%p) magic 0x%x\n", denied, file->f_path.mnt, s, label, file_inode(file)->i_sb->s_magic);
+*/
+	}
 done:
 	rcu_read_unlock();
 
