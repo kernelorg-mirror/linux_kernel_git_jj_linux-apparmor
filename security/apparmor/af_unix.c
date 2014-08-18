@@ -234,18 +234,21 @@ int aa_unix_label_sk_perm(struct aa_label *label, int op, u32 request,
 			profile_sk_perm(profile, op, request, sk));
 }
 
-/* revaliation, get/set attr */
-int aa_unix_sock_perm(int op, u32 request, struct socket *sock)
+static int unix_label_sock_perm(struct aa_label *label, int op, u32 request,
+				struct socket *sock)
 {
-	struct aa_label *label = aa_current_label();
-
 	if (unconfined(label))
 		return 0;
 	if (UNIX_FS(sock->sk))
-		return unix_fs_perm(op, request, aa_current_label(),
-				    unix_sk(sock->sk), 0);
+		return unix_fs_perm(op, request, label, unix_sk(sock->sk), 0);
 
 	return aa_unix_label_sk_perm(label, op, request, sock->sk);
+}
+
+/* revaliation, get/set attr */
+int aa_unix_sock_perm(int op, u32 request, struct socket *sock)
+{
+	return unix_label_sock_perm(aa_current_label(), op, request, sock);
 }
 
 static int profile_addr_perm(struct aa_profile *profile, int op, u32 request,
@@ -516,14 +519,19 @@ static int profile_peer_perm(struct aa_profile *profile, int op, u32 request,
 }
 */
 
+/**
+ *
+ * Requires: lock helf on both @sk and @peer_sk
+ */
 int aa_unix_peer_perm(struct aa_label *label, int op, u32 request,
 		      struct sock *sk, struct sock *peer_sk)
 {
+	struct unix_sock *peeru = unix_sk(peer_sk);
+
 	AA_BUG(!label);
 	AA_BUG(!sk);
 	AA_BUG(!peer_sk);
 
-	struct unix_sock *peeru = unix_sk(peer_sk);
 	if (!UNIX_FS(peeru)) {
 		struct aa_profile *profile;
 		DEFINE_AUDIT_UNIX(sa, op, sk, sk->sk_type, sk->sk_protocol);
@@ -575,8 +583,9 @@ static void unix_state_double_unlock(struct sock *sk1, struct sock *sk2)
 int aa_unix_file_perm(struct aa_label *label, int op, u32 request,
 		      struct socket *sock)
 {
-	struct sock *peer_sk;
-	int error;
+	struct sock *peer_sk = NULL;
+	u32 sk_req = request & ~(AA_MAY_SEND | AA_MAY_RECEIVE);
+	int error = 0;
 
 	AA_BUG(!label);
 	AA_BUG(!sock);
@@ -585,39 +594,49 @@ int aa_unix_file_perm(struct aa_label *label, int op, u32 request,
 
 	/* TODO: update sock label with new task label */
 	unix_state_lock(sock->sk);
-	if (unix_connected_fs(sock->sk)) {
-		/* not fs to the aa_file_perm code, but file here */
+	peer_sk = unix_peer(sock->sk);
+	if (peer_sk)
+		sock_hold(peer_sk);
+	if (!unix_connected(sock) && sk_req) {
+		error = unix_label_sock_perm(label, op, sk_req, sock);
+		if (!error) {
+			// update label
+		}
+	}
+	unix_state_unlock(sock->sk);
+	if (!peer_sk)
+		return error;
+
+	unix_state_double_lock(sock->sk, peer_sk);
+	if (UNIX_FS(sock->sk)) {
 printk("apparmor unix_file fs socket "); print_sk(sock->sk); printk("\n");
 		error = unix_fs_perm(op, request, label, unix_sk(sock->sk),
 				     PATH_SOCK_COND);
-		goto out;
-	}
-	peer_sk = unix_peer(sock->sk);
-	error = aa_unix_label_sk_perm(label, op, request, sock->sk);
-	if (!peer_sk || sock->sk->sk_state != TCP_ESTABLISHED ) {
-//	       printk("apparmor: file revalidate of unconnected unix sock\n");
-					;
+	} else if (UNIX_FS(peer_sk)) {
+printk("apparmor unix_file fs peer socket "); print_sk(peer_sk); printk("\n");
+		error = unix_fs_perm(op, request, label, unix_sk(peer_sk),
+				     PATH_SOCK_COND);
 	} else {
-//		struct aa_sk_cxt *pcxt = SK_CXT(peer_sk);
-		/* TODO: fixme to only use local sock for addr, peer */
-/*
-		int e = xcheck(aa_unix_peer_perm(label, op,
-						 MAY_READ | MAY_WRITE,
-						 sock->sk, peer_sk),
-			       aa_unix_peer_perm(pcxt->label,
-						 op, MAY_READ | MAY_WRITE,
-						 peer_sk, sock->sk));
+		struct aa_sk_cxt *pcxt = SK_CXT(peer_sk);
+		int e;
+
+		if (sk_req)
+			error = aa_unix_label_sk_perm(label, op, sk_req,
+						      sock->sk);
+printk("apparmor unix_file cross check "); print_sk(sock->sk); printk("\n");
+		e = xcheck(aa_unix_peer_perm(label, op, MAY_READ | MAY_WRITE,
+					     sock->sk, peer_sk),
+			   aa_unix_peer_perm(pcxt->label, op,
+					     MAY_READ | MAY_WRITE,
+					     peer_sk, sock->sk));
 		if (e)
 			error = e;
-*/
-//	       printk("apparmor: file revalidate of connected unix sock\n");
-		/* GAH double lock can't be used here
-		   unix_state_double_lock(sock->sk, peer_sk);
-		   unix_state_double_unlock(sock->sk, peer_sk);
-		*/
 	}
-out:
-	unix_state_unlock(sock->sk);
+
+// update label
+// update peer label
+	unix_state_double_unlock(sock->sk, peer_sk);
+	sock_put(peer_sk);
 
 	return error;
 }

@@ -560,32 +560,6 @@ out:
 	return error;
 }
 
-/* from net/unix/af_unix.c */
-static void unix_state_double_lock(struct sock *sk1, struct sock *sk2)
-{
-	if (unlikely(sk1 == sk2) || !sk2) {
-		unix_state_lock(sk1);
-		return;
-	}
-	if (sk1 < sk2) {
-		unix_state_lock(sk1);
-		unix_state_lock_nested(sk2);
-	} else {
-		unix_state_lock(sk2);
-		unix_state_lock_nested(sk1);
-	}
-}
-
-static void unix_state_double_unlock(struct sock *sk1, struct sock *sk2)
-{
-	if (unlikely(sk1 == sk2) || !sk2) {
-		unix_state_unlock(sk1);
-		return;
-	}
-	unix_state_unlock(sk1);
-	unix_state_unlock(sk2);
-}
-
 #include <uapi/linux/magic.h>
 /**
  * aa_file_perm - do permission revalidation check & audit for @file
