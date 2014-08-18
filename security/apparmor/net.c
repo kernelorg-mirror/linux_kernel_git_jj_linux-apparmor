@@ -130,14 +130,18 @@ void audit_net_cb(struct audit_buffer *ab, void *va)
 	}
 	if (sa->u.net->family == AF_UNIX) {
 		if (sa->u.net->sk)
-			audit_unix_sk_addr(ab, "addr", sa->u.net->sk);
+			audit_unix_sk_addr(ab, "name", sa->u.net->sk);
+		else
+			audit_log_format(ab, " name=none");
 		if (aad(sa)->net.peer_sk)
-			audit_unix_sk_addr(ab, "peer_addr",
+			audit_unix_sk_addr(ab, "peer_name",
 					   aad(sa)->net.peer_sk);
 		else if (aad(sa)->net.addr)
-			audit_unix_addr(ab, "peer_addr",
+			audit_unix_addr(ab, "peer_name",
 					unix_addr(aad(sa)->net.addr),
 					aad(sa)->net.addrlen);
+		else
+			audit_log_format(ab, " peer_name=none");
 	}
 	if (aad(sa)->target) {
 		audit_log_format(ab, " peer=");
