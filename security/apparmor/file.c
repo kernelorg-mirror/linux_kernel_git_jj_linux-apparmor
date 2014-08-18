@@ -509,6 +509,7 @@ static int __file_path_perm(int op, struct aa_label *label,
 
 	/* revalidation due to label out of date. No revocation at this time */
 	if (!denied && aa_label_is_subset(flabel, label))
+		/* TODO: check for revocation on stale profiles */
 		return 0;
 
 	/* TODO: fix path lookup flags */
