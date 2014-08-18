@@ -320,14 +320,11 @@ int aa_path_perm(int op, struct aa_label *label, struct path *path,
 
 	error = path_name(op, label, path, flags, buffer, &name, cond, request,
 			  true);
-	if (error)
-		goto out;
+	if (!error)
+		error = fn_for_each_confined(label, profile,
+				path_perm(op, profile, name, request, cond,
+					  flags, &perms));
 
-	error = fn_for_each_confined(label, profile,
-			path_perm(op, profile, name, request, cond, flags,
-				  &perms));
-
-out:
 	put_buffers(buffer);
 	return error;
 }
@@ -542,11 +539,10 @@ static int __file_path_perm(int op, struct aa_label *label,
 		/* TODO: cache full perms so this only happens because of
 		 * conditionals */
 		/* TODO: don't audit here */
-		int e = fn_for_each_not_in_set(label, flabel, profile,
+		last_error(error,
+			fn_for_each_not_in_set(label, flabel, profile,
 				path_perm(op, profile, name, request, &cond,
-					  0, &perms));
-		if (e)
-			error = e;
+					  0, &perms)));
 	}
 	if (!error)
 		update_file_cxt(file_cxt(file), label, request);
@@ -577,9 +573,7 @@ static int __file_sock_perm(int op, struct aa_label *label,
 	if (denied) {
 		/* TODO: improve to skip profiles checked above */
 		/* check every profile in file label to is cached */
-		int e = aa_sock_file_perm(flabel, op, request, sock);
-		if (e)
-			error = e;
+		last_error(error, aa_sock_file_perm(flabel, op, request, sock));
 	}
 	if (!error)
 		update_file_cxt(file_cxt(file), label, request);

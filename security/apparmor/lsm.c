@@ -812,11 +812,10 @@ printk("apparmor warning %s: !aa_label_is_subset(sk_cxt->label, label\n", __FUNC
 				(AA_MAY_CONNECT | AA_MAY_SEND | AA_MAY_RECEIVE),
 				sk, peer_sk);
 	if (!UNIX_FS(peer_sk)) {
-		int e = aa_unix_peer_perm(peer_cxt->label, OP_CONNECT,
+		last_error(error,
+			aa_unix_peer_perm(peer_cxt->label, OP_CONNECT,
 				(AA_MAY_ACCEPT | AA_MAY_SEND | AA_MAY_RECEIVE),
-				peer_sk, sk);
-		if (e)
-			error = e;
+				 peer_sk, sk));
 	}
 	aa_end_current_label(label);
 

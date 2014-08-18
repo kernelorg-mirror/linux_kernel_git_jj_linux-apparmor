@@ -618,19 +618,17 @@ printk("apparmor unix_file fs peer socket "); print_sk(peer_sk); printk("\n");
 				     PATH_SOCK_COND);
 	} else {
 		struct aa_sk_cxt *pcxt = SK_CXT(peer_sk);
-		int e;
-
 		if (sk_req)
 			error = aa_unix_label_sk_perm(label, op, sk_req,
 						      sock->sk);
 printk("apparmor unix_file cross check "); print_sk(sock->sk); printk("\n");
-		e = xcheck(aa_unix_peer_perm(label, op, MAY_READ | MAY_WRITE,
-					     sock->sk, peer_sk),
-			   aa_unix_peer_perm(pcxt->label, op,
-					     MAY_READ | MAY_WRITE,
-					     peer_sk, sock->sk));
-		if (e)
-			error = e;
+		last_error(error,
+			xcheck(aa_unix_peer_perm(label, op,
+						 MAY_READ | MAY_WRITE,
+						 sock->sk, peer_sk),
+			       aa_unix_peer_perm(pcxt->label, op,
+						 MAY_READ | MAY_WRITE,
+						 peer_sk, sock->sk)));
 	}
 
 // update label

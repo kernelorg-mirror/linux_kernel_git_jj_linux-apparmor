@@ -153,6 +153,13 @@ struct aa_label {
 	struct aa_profile *ent[2];
 };
 
+#define last_error(E, FN)				\
+do {							\
+	int __subE = (FN);				\
+	if (__subE)					\
+		(E) = __subE;				\
+} while (0)
+
 #define label_isprofile(X) ((X)->flags & FLAG_PROFILE)
 #define label_unconfined(X) ((X)->flags & FLAG_UNCONFINED)
 #define unconfined(X) label_unconfined(X)
@@ -200,9 +207,7 @@ for ((I).i = (I).j = 0;							\
 	struct label_it i;						\
 	int __E = 0;							\
 	label_for_each_comb(i, (L1), (L2), (P1), (P2)) {		\
-		int e = (FN);						\
-		if (e)							\
-			__E = e;					\
+		last_error(__E, (FN));					\
 	}								\
 	__E;								\
 })
@@ -235,9 +240,7 @@ for ((I).i = (I).j = 0;							\
 	struct label_it i;						\
 	int __E = 0;							\
 	label_for_each ## __VA_ARGS__ (i, (L), (P)) {			\
-		int e = (FN);						\
-		if (e)							\
-			__E = e;					\
+		last_error(__E, (FN));					\
 	}								\
 	__E;								\
 })
@@ -250,9 +253,7 @@ for ((I).i = (I).j = 0;							\
 	struct label_it i;						\
 	int __E = 0;							\
 	label_for_each ## __VA_ARGS__(i, (L1), (L2), (P)) {		\
-		int e = (FN);						\
-		if (e)							\
-			__E = e;					\
+		last_error(__E, (FN));					\
 	}								\
 	__E;								\
 })
