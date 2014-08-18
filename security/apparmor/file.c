@@ -510,6 +510,10 @@ static int __file_path_perm(int op, struct aa_label *label,
 	char *buffer;
 	int flags, error;
 
+	/* revalidation due to label out of date. No revocation at this time */
+	if (!denied && aa_label_is_subset(flabel, label))
+		return 0;
+
 	/* TODO: fix path lookup flags */
 	flags = PATH_DELEGATE_DELETED | labels_profile(label)->path_flags |
 		(S_ISDIR(cond.mode) ? PATH_IS_DIR : 0);
@@ -527,20 +531,13 @@ static int __file_path_perm(int op, struct aa_label *label,
 		goto out;
 	}
 
-	/* revalidation due to label out of date. No revocation at this time */
-	if (!denied && flabel == label)
-		goto out;
-
-	/* TODO: skip checking profiles already cached on flabel */
-	error = fn_for_each_confined(label, profile,
-				path_perm(op, profile, name, request, &cond,
-					  0, &perms));
-	if (error)
-		goto out;
-
+	/* check every profile in task label not in current cache */
+	error = fn_for_each_not_in_set(flabel, label, profile,
+			path_perm(op, profile, name, request, &cond, 0,
+				  &perms));
 	if (denied) {
-		/* ensure that all cached profiles all the perm to be cached
-		 * - check profiles in flabel not already checked in label
+		/* check every profile in file label that was not tested
+		 * in the initial check above.
 		 */
 		/* TODO: cache full perms so this only happens because of
 		 * conditionals */
@@ -549,10 +546,10 @@ static int __file_path_perm(int op, struct aa_label *label,
 				path_perm(op, profile, name, request, &cond,
 					  0, &perms));
 		if (e)
-			goto out;
+			error = e;
 	}
-
-	update_file_cxt(file_cxt(file), label, request);
+	if (!error)
+		update_file_cxt(file_cxt(file), label, request);
 
 out:
 	put_buffers(buffer);
