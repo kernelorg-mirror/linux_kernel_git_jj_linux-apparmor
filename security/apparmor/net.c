@@ -77,14 +77,17 @@ static void audit_unix_addr(struct audit_buffer *ab, const char *str,
 	int len = unix_addr_len(addrlen);
 
 	if (len <= 0) {
-		audit_log_format(ab, " %s=anonymous", str);
+		audit_log_format(ab, " %s=none", str);
 	} else if (addr->sun_path[0]) {
 		audit_log_format(ab, " %s=\"", str);
 		audit_log_untrustedstring(ab, addr->sun_path);
 		audit_log_format(ab, "\"");
 	} else {
 		audit_log_format(ab, " %s=\"@", str);
-		audit_log_n_untrustedstring(ab, &addr->sun_path[1], len);
+		if (audit_string_contains_control(&addr->sun_path[1], len - 1))
+			audit_log_n_hex(ab, &addr->sun_path[1], len - 1);
+		else
+			audit_log_format(ab, "%s", &addr->sun_path[1]);
 		audit_log_format(ab, "\"");
 	}
 }
