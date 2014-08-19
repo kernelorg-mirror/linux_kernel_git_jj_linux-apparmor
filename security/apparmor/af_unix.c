@@ -472,53 +472,6 @@ static int profile_peer_perm(struct aa_profile *profile, int op, u32 request,
 				  sk->sk_protocol, sk);
 }
 
-#if 0
-static int profile_peer_perm(struct aa_profile *profile, int op, u32 request,
-			     struct sock *sk, struct sockaddr_un *addr,
-			     int addrlen, struct aa_label *peer,
-			     struct common_audit_data *sa)
-{
-	unsigned int state;
-
-	AA_BUG(!profile);
-	AA_BUG(profile_unconfined(profile));
-	AA_BUG(!sk);
-	AA_BUG(!peer);
-
-	state = PROFILE_MEDIATES_AF(profile, AF_UNIX);
-	if (state) {
-		struct aa_profile *peerp;
-		state = match_to_peer(profile, state, unix_sk(sk),
-				      addr, addrlen, &aad(sa)->info);
-		return fn_for_each(peer, peerp,
-				   match_label(profile, peerp, state, request,
-					       sa));
-	}
-
-	return aa_profile_af_perm(profile, op, sk->sk_family, sk->sk_type,
-				  sk->sk_protocol, sk);
-}
-#endif
-
-/* Need to do
- * addr, sk for reverse, based off of stored addr, and peer_label
-
-static int profile_peer_perm(struct aa_profile *profile, int op, u32 request,
-			     struct sock *sk, struct sock *peer_sk,
-			     struct common_audit_data *sa)
-{
-	peer_label = sk_peer_label(sk);
-	sk->addr->path, sk->addr->len;
-
-// on connect the addr is shared newsk gets listening sk addr
-	int e = xcheck(aa_unix_peer_perm(label, op, MAY_READ | MAY_WRITE,
-					 sock->sk, peer_sk),
-		       aa_unix_peer_rev(peer_label, op, MAY_READ | MAY_WRITE,
-					sk->addr->path, sk->addr->len,
-					 label, sk->addr->path, sk->addr-len)
-}
-*/
-
 /**
  *
  * Requires: lock helf on both @sk and @peer_sk
