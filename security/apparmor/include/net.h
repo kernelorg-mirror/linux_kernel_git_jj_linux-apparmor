@@ -47,6 +47,8 @@
 		      AA_MAY_CHOWN | AA_MAY_CHGRP | AA_MAY_LOCK |	\
 		      AA_MAY_MPROT)
 
+#define NET_PEER_MASK (AA_MAY_SEND | AA_MAY_RECEIVE | AA_MAY_CONNECT |	\
+		       AA_MAY_ACCEPT)
 struct aa_sk_cxt {
 	struct aa_label *label;
 	struct aa_label *peer;

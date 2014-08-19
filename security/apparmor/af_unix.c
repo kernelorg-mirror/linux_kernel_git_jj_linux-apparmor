@@ -584,7 +584,7 @@ int aa_unix_file_perm(struct aa_label *label, int op, u32 request,
 		      struct socket *sock)
 {
 	struct sock *peer_sk = NULL;
-	u32 sk_req = request & ~(AA_MAY_SEND | AA_MAY_RECEIVE);
+	u32 sk_req = request & ~NET_PEER_MASK;
 	int error = 0;
 
 	AA_BUG(!label);
