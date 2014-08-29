@@ -114,10 +114,11 @@ void audit_net_cb(struct audit_buffer *ab, void *va)
 		audit_log_format(ab, "\"unknown(%d)\"", sa->u.net->family);
 	}
 	audit_log_format(ab, " sock_type=");
-	if (sock_type_names[aad(sa)->net.type])
+	if (sock_type_names[aad(sa)->net.type]) {
 		audit_log_string(ab, sock_type_names[aad(sa)->net.type]);
-	else
+	} else {
 		audit_log_format(ab, "\"unknown(%d)\"", aad(sa)->net.type);
+	}
 	audit_log_format(ab, " protocol=%d", aad(sa)->net.protocol);
 
 	if (aad(sa)->request & NET_PERMS_MASK) {
