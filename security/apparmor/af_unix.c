@@ -141,7 +141,6 @@ static int do_perms(struct aa_profile *profile, unsigned int state, u32 request,
 
 	aa_compute_perms(profile->policy.dfa, state, &perms);
 	aa_apply_modes_to_perms(profile, &perms);
-perms.complain = 0xffffffff;
 	return aa_check_perms(profile, &perms, request, sa,
 			      audit_net_cb);
 }
