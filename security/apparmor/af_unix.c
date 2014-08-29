@@ -65,6 +65,7 @@ static unsigned int match_addr(struct aa_profile *profile, unsigned int state,
 					 addr->sun_path,
 					 unix_addr_len(addrlen));
 	else
+		/* anonymous end point */
 		state = aa_dfa_match_len(profile->policy.dfa, state, "\x01",
 					 1);
 	/* todo change to out of band */
@@ -87,6 +88,7 @@ static unsigned int match_to_sk(struct aa_profile *profile,
 		}
 		state = match_addr(profile, state, addr, len);
 		if (state) {
+			/* todo: local label matching */
 			state = aa_dfa_null_transition(profile->policy.dfa,
 						       state);
 			if (!state)
@@ -100,7 +102,6 @@ static unsigned int match_to_sk(struct aa_profile *profile,
 
 #define CMD_ADDR	1
 #define CMD_LISTEN	2
-#define CMD_ACCEPT	3
 #define CMD_OPT		4
 
 static inline unsigned int match_to_cmd(struct aa_profile *profile,
@@ -359,8 +360,8 @@ static inline int profile_accept_perm(struct aa_profile *profile,
 		DEFINE_AUDIT_UNIX(sa, OP_ACCEPT, sk, sk->sk_type,
 				  sk->sk_protocol);
 
-		state = match_to_cmd(profile, state, unix_sk(sk), CMD_ACCEPT,
-				     &aad(&sa)->info);
+		state = match_to_sk(profile, state, unix_sk(sk),
+				    &aad(&sa)->info);
 		return do_perms(profile, state, AA_MAY_ACCEPT, &sa);
 	}
 
