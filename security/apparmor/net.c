@@ -76,12 +76,11 @@ static void audit_unix_addr(struct audit_buffer *ab, const char *str,
 {
 	int len = unix_addr_len(addrlen);
 
-	if (len <= 0) {
+	if (!addr || len <= 0) {
 		audit_log_format(ab, " %s=none", str);
 	} else if (addr->sun_path[0]) {
-		audit_log_format(ab, " %s=\"", str);
+		audit_log_format(ab, " %s=", str);
 		audit_log_untrustedstring(ab, addr->sun_path);
-		audit_log_format(ab, "\"");
 	} else {
 		audit_log_format(ab, " %s=\"@", str);
 		if (audit_string_contains_control(&addr->sun_path[1], len - 1))
@@ -96,10 +95,10 @@ static void audit_unix_sk_addr(struct audit_buffer *ab, const char *str,
 			       struct sock *sk)
 {
 	struct unix_sock *u = unix_sk(sk);
-
-	/* Don't log a path for anonymous, FS based logged by file_cb */
-	if (u && UNIX_ABSTRACT(u))
+	if (u && u->addr)
 		audit_unix_addr(ab, str, u->addr->name, u->addr->len);
+	else
+		audit_unix_addr(ab, str, NULL, 0);
 }
 
 /* audit callback for net specific fields */
@@ -133,19 +132,16 @@ void audit_net_cb(struct audit_buffer *ab, void *va)
 		}
 	}
 	if (sa->u.net->family == AF_UNIX) {
-		if (sa->u.net->sk)
-			audit_unix_sk_addr(ab, "addr", sa->u.net->sk);
-		else
-			audit_log_format(ab, " addr=none");
-		if (aad(sa)->net.peer_sk)
-			audit_unix_sk_addr(ab, "peer_addr",
-					   aad(sa)->net.peer_sk);
-		else if (aad(sa)->net.addr)
-			audit_unix_addr(ab, "peer_addr",
-					unix_addr(aad(sa)->net.addr),
-					aad(sa)->net.addrlen);
-		else
-			audit_log_format(ab, " peer_addr=none");
+		audit_unix_sk_addr(ab, "addr", sa->u.net->sk);
+		if (aad(sa)->request & NET_PEER_MASK) {
+			if (aad(sa)->net.addr)
+				audit_unix_addr(ab, "peer_addr",
+						unix_addr(aad(sa)->net.addr),
+						aad(sa)->net.addrlen);
+			else
+				audit_unix_sk_addr(ab, "peer_addr",
+						   aad(sa)->net.peer_sk);
+		}
 	}
 	if (aad(sa)->target) {
 		audit_log_format(ab, " peer=");
