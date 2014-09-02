@@ -132,7 +132,12 @@ void audit_net_cb(struct audit_buffer *ab, void *va)
 		}
 	}
 	if (sa->u.net->family == AF_UNIX) {
-		audit_unix_sk_addr(ab, "addr", sa->u.net->sk);
+		if ((aad(sa)->request & ~NET_PEER_MASK) && aad(sa)->net.addr)
+			audit_unix_addr(ab, "addr",
+					unix_addr(aad(sa)->net.addr),
+					aad(sa)->net.addrlen);
+		else
+			audit_unix_sk_addr(ab, "addr", sa->u.net->sk);
 		if (aad(sa)->request & NET_PEER_MASK) {
 			if (aad(sa)->net.addr)
 				audit_unix_addr(ab, "peer_addr",
