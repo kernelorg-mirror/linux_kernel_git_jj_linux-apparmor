@@ -480,12 +480,17 @@ int aa_unix_peer_perm(struct aa_label *label, int op, u32 request,
 		      struct sock *sk, struct sock *peer_sk)
 {
 	struct unix_sock *peeru = unix_sk(peer_sk);
+	struct unix_sock *u = unix_sk(sk);
 
 	AA_BUG(!label);
 	AA_BUG(!sk);
 	AA_BUG(!peer_sk);
 
-	if (!UNIX_FS(peeru)) {
+	if (UNIX_FS(peeru))
+		return unix_fs_perm(op, request, label, peeru, 0);
+	else if (UNIX_FS(u))
+		return unix_fs_perm(op, request, label, u, 0);
+	else {
 		struct aa_profile *profile;
 		DEFINE_AUDIT_UNIX(sa, op, sk, sk->sk_type, sk->sk_protocol);
 		aad(&sa)->net.peer_sk = peer_sk;
@@ -502,8 +507,6 @@ int aa_unix_peer_perm(struct aa_label *label, int op, u32 request,
 				profile_peer_perm(profile, op, request, sk,
 						  peer_sk, &sa));
 	}
-
-	return unix_fs_perm(op, request, label, peeru, 0);
 }
 
 
