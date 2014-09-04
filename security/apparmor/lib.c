@@ -334,7 +334,7 @@ static u32 map_other(u32 x)
 {
 	return ((x & 0x3) << 8) |	/* SETATTR/GETATTR */
 		((x & 0x1c) << 18) |	/* ACCEPT/BIND/LISTEN */
-		((x & 0x60) << 24);	/* SETOPT/GETOPT */
+		((x & 0x60) << 19);	/* SETOPT/GETOPT */
 }
 
 void aa_compute_perms(struct aa_dfa *dfa, unsigned int state,
