@@ -85,6 +85,9 @@ void __aa_update_replacedby(struct aa_label *orig, struct aa_label *new)
 /* helper fn for label_for_each_confined */
 int aa_label_next_confined(struct aa_label *l, int i)
 {
+	AA_BUG(!l);
+	AA_BUG(i < 0);
+
 	for (; i < l->size; i++) {
 		if (!profile_unconfined(l->ent[i]))
 			return i;
@@ -119,6 +122,8 @@ static bool label_profiles_unconfined(struct aa_label *label)
 	struct aa_profile *profile;
 	struct label_it i;
 
+	AA_BUG(!label);
+
 	label_for_each(i, label, profile) {
 		if (!profile_unconfined(profile))
 			return false;
@@ -134,7 +139,7 @@ static int profile_cmp(struct aa_profile *a, struct aa_profile *b);
  * @set: label to test against
  * @sub: label to if is subset of @set
  *
- * Returns: profile in @sub that is not in @set
+ * Returns: profile in @sub that is not in @set, with iterator set pos after
  *     else NULL if @sub is a subset of @set
  */
 struct aa_profile * aa_label_next_not_in_set(struct label_it *I,
@@ -177,6 +182,9 @@ struct aa_profile * aa_label_next_not_in_set(struct label_it *I,
 bool aa_label_is_subset(struct aa_label *set, struct aa_label *sub)
 {
 	struct label_it i = { };
+
+	AA_BUG(!set);
+	AA_BUG(!sub);
 
 	if (sub == set)
 		return true;
@@ -339,6 +347,9 @@ bool aa_label_remove(struct aa_labelset *ls, struct aa_label *l)
 	return res;
 }
 
+/* don't use when using ptr comparisons because nodes should never be
+ * the same
+ */
 static bool __aa_label_replace(struct aa_labelset *ls, struct aa_label *old,
 			       struct aa_label *new)
 {
@@ -630,7 +641,7 @@ struct aa_label *aa_label_find(struct aa_labelset *ls, struct aa_label *l)
  * Requires: @ls->lock
  *           caller to hold a valid ref on l
  *
- * Returns: ref counted @l if successful in inserting @l
+ * Returns: @l if successful in inserting @l
  *          else ref counted equivalent label that is already in the set.
  */
 static struct aa_label *__aa_label_insert(struct aa_labelset *ls,
@@ -1089,7 +1100,7 @@ struct aa_label *aa_label_merge(struct aa_label *a, struct aa_label *b,
 	return label;
 }
 
-/* assume sort and merge done first */
+/* requires sort and merge done first */
 struct aa_label *aa_label_vec_merge(struct aa_profile **vec, int len,
 				    gfp_t gfp)
 {
