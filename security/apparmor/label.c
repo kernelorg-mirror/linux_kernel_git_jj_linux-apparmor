@@ -401,7 +401,7 @@ struct aa_label *aa_label_remove_and_insert(struct aa_labelset *ls,
 	struct aa_label *l;
 
 	write_lock_irqsave(&ls->lock, flags);
-	l = __aa_label_remove_and_insert(ls, remove, insert);
+	l = aa_get_label(__aa_label_remove_and_insert(ls, remove, insert));
 	write_unlock_irqrestore(&ls->lock, flags);
 
 	return l;
@@ -419,16 +419,16 @@ struct aa_label *aa_label_remove_and_insert(struct aa_labelset *ls,
 bool aa_label_replace(struct aa_labelset *ls, struct aa_label *old,
 		      struct aa_label *new)
 {
+	struct aa_label *l;
 	unsigned long flags;
 	bool res;
 
 	write_lock_irqsave(&ls->lock, flags);
-	if (!(old->flags & FLAG_IN_TREE)) {
-		struct aa_label *l = __aa_label_insert(ls, new);
-		res = (l == new);
-		aa_put_label(l);
-	} else
-		res = __aa_label_remove_and_insert(ls, old, new);
+	if (!(old->flags & FLAG_IN_TREE))
+		l = __aa_label_insert(ls, new);
+	else
+		l = __aa_label_remove_and_insert(ls, old, new);
+	res = (l == new);
 	write_unlock_irqrestore(&ls->lock, flags);
 
 	return res;
@@ -663,7 +663,7 @@ static struct aa_label *__aa_label_insert(struct aa_labelset *ls,
 		parent = *new;
 		if (result == 0) {
 			labelsetstats_inc(ls, existing);
-			return aa_get_label(this);
+			return this;
 		} else if (result < 0)
 			new = &((*new)->rb_left);
 		else /* (result > 0) */
@@ -677,7 +677,7 @@ static struct aa_label *__aa_label_insert(struct aa_labelset *ls,
 	labelsetstats_inc(ls, insert);
 	labelsetstats_inc(ls, intree);
 
-        return 	aa_get_label(l);
+        return 	l;
 }
 
 /**
@@ -709,7 +709,7 @@ struct aa_label *aa_label_insert(struct aa_labelset *ls, struct aa_label *l)
 	}
 
 	write_lock_irqsave(&ls->lock, flags);
-	label = __aa_label_insert(ls, l);
+	label = aa_get_label(__aa_label_insert(ls, l));
 	write_unlock_irqrestore(&ls->lock, flags);
 
 	return label;
@@ -1089,7 +1089,7 @@ struct aa_label *aa_label_merge(struct aa_label *a, struct aa_label *b,
 			new = NULL;
 		}
 		if (!(l->flags & FLAG_IN_TREE))
-			label = __aa_label_insert(ls, l);
+			label = aa_get_label(__aa_label_insert(ls, l));
 		write_unlock_irqrestore(&ls->lock, flags);
 		aa_put_label(new);
 		aa_put_label(l);
@@ -1128,13 +1128,13 @@ struct aa_label *aa_label_vec_merge(struct aa_profile **vec, int len,
 	for (i = 0; i < len; i++) {
 		new->ent[i] = aa_get_profile(vec[i]);
 		label = __aa_label_insert(ls, new);
+		if (label != new) {
+			aa_get_label(label);
+			/* not fully constructed don't put */
+			aa_label_free(new);
+		}
 	}
 	write_unlock_irqrestore(&ls->lock, flags);
-	if (label != new)
-		/* not fully constructed don't put */
-		aa_label_free(new);
-	else
-		aa_put_label(new);		/* extra count */
 
 	return label;
 }
