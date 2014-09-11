@@ -903,7 +903,7 @@ static struct aa_label *__label_merge(struct aa_label *l, struct aa_label *a,
 	AA_BUG(!b);
 	AA_BUG(b->size < 0);
 	AA_BUG(!l);
-	AA_BUG(l->size != a->size + b->size);
+	AA_BUG(l->size < a->size + b->size);
 
 	if (a == b)
 		return aa_get_label(a);
@@ -1057,7 +1057,7 @@ struct aa_label *aa_label_merge(struct aa_label *a, struct aa_label *b,
 	AA_BUG(!b);
 
 	if (a == b)
-		return aa_get_label(a);
+		return aa_get_newest_label(a);
 
 	ls = labelset_of_merge(a, b);
 
@@ -1068,7 +1068,10 @@ struct aa_label *aa_label_merge(struct aa_label *a, struct aa_label *b,
 	*/
 
 	if (!label) {
-		struct aa_label *new, *l, *ar = NULL, *br = NULL;
+		struct aa_label *new, *l;
+
+		a = aa_get_newest_label(a);
+		b = aa_get_newest_label(b);
 
 		/* could use label_merge_len(a, b), but requires double
 		 * comparison for small savings
@@ -1078,10 +1081,6 @@ struct aa_label *aa_label_merge(struct aa_label *a, struct aa_label *b,
 			return NULL;
 
 		write_lock_irqsave(&ls->lock, flags);
-		if (label_invalid(a))
-			a = ar = aa_get_newest_label(a);
-		if (label_invalid(b))
-			b = br = aa_get_newest_label(b);
 		l = __label_merge(new, a, b);
 		if (l != new) {
 			/* new may not be fully setup so no put_label */
@@ -1093,8 +1092,8 @@ struct aa_label *aa_label_merge(struct aa_label *a, struct aa_label *b,
 		write_unlock_irqrestore(&ls->lock, flags);
 		aa_put_label(new);
 		aa_put_label(l);
-		aa_put_label(ar);
-		aa_put_label(br);
+		aa_put_label(a);
+		aa_put_label(b);
 	}
 
 	return label;
