@@ -1713,8 +1713,10 @@ out:
 static struct aa_label *__label_update(struct aa_label *label)
 {
 	struct aa_label *l, *tmp;
+	struct aa_labelset *ls;
 	struct aa_profile *p;
 	struct label_it i;
+	unsigned long flags;
 	int invcount = 0;
 
 	AA_BUG(!label);
@@ -1730,41 +1732,49 @@ static struct aa_label *__label_update(struct aa_label *label)
 			aa_put_label(l);
 			return NULL;
 		}
+		/* only label update will set replacedby so ns lock is enough */
 		label->replacedby = r;
 	}
+
+	/* while holding the ns_lock will stop profile replacement, removal,
+	 * and label updates, label merging and removal can be occuring
+	 */
+
+	ls = labels_set(label);
+	write_lock_irqsave(&ls->lock, flags);
 	/* circular ref only broken by replace or remove */
 	l->replacedby = aa_get_replacedby(label->replacedby);
 	__aa_update_replacedby(label, l);
 
 	label_for_each(i, label, p) {
-		if (PROFILE_INVALID(p)) {
-			l->ent[i.i] = aa_get_newest_profile(p);
-			if (&l->ent[i.i]->label.replacedby != &p->label.replacedby)
-				invcount++;
-		} else
-			l->ent[i.i] = aa_get_profile(p);
+		l->ent[i.i] = aa_get_newest_profile(p);
+		if (&l->ent[i.i]->label.replacedby != &p->label.replacedby)
+			invcount++;
 	}
 
 	/* updated label invalidated by being removed/renamed from labelset */
 	if (invcount) {
 		l->size -= aa_sort_and_merge_profiles(l->size, &l->ent[0]);
-
 		if (labels_set(label) == labels_set(l)) {
-			struct aa_labelset *ls = labels_set(label);
-			/* should not fail, as done within ns lock */
-			tmp = aa_label_remove_and_insert(ls, label, l);
-			AA_BUG(tmp != l);
-			aa_put_label(tmp);
+			AA_BUG(__aa_label_remove_and_insert(labels_set(label), label, l) != l);
 		} else {
-			/* should not fail, as done within ns lock */
 			aa_label_remove(labels_set(label), label);
-			tmp = aa_label_insert(labels_set(l), l);
-			AA_BUG(tmp != l);
-			aa_put_label(tmp);
+			goto other_ls_insert;
 		}
 	} else {
 		AA_BUG(labels_ns(label) != labels_ns(l));
-		aa_label_replace(labels_set(label), label, l);
+		AA_BUG(__aa_label_remove_and_insert(labels_set(label), label, l) != l);
+	}
+	write_unlock_irqrestore(&ls->lock, flags);
+
+	return l;
+
+other_ls_insert:
+	write_unlock_irqrestore(&ls->lock, flags);
+	tmp = aa_label_insert(labels_set(l), l);
+	if (tmp != l) {
+		aa_put_label(l);
+		l = tmp;
 	}
 
 	return l;
