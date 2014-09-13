@@ -896,12 +896,12 @@ static int apparmor_socket_post_create(struct socket *sock, int family,
 	else
 		label = aa_get_label(aa_current_label());
 
-	SOCK_CXT(sock) = label;
 	if (sock->sk) {
 		struct aa_sk_cxt *cxt = SK_CXT(sock->sk);
 		aa_put_label(cxt->label);
 		cxt->label = aa_get_label(label);
 	}
+	aa_put_label(label);
 
 	return 0;
 }
