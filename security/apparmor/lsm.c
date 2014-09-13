@@ -900,7 +900,7 @@ static int apparmor_socket_post_create(struct socket *sock, int family,
 	if (sock->sk) {
 		struct aa_sk_cxt *cxt = SK_CXT(sock->sk);
 		aa_put_label(cxt->label);
-		cxt->label = aa_get_label(aa_current_label());
+		cxt->label = aa_get_label(label);
 	}
 
 	return 0;
