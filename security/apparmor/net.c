@@ -86,7 +86,8 @@ static void audit_unix_addr(struct audit_buffer *ab, const char *str,
 		if (audit_string_contains_control(&addr->sun_path[1], len - 1))
 			audit_log_n_hex(ab, &addr->sun_path[1], len - 1);
 		else
-			audit_log_format(ab, "%s", &addr->sun_path[1]);
+			audit_log_format(ab, "%.*s", len - 1,
+					 &addr->sun_path[1]);
 		audit_log_format(ab, "\"");
 	}
 }
