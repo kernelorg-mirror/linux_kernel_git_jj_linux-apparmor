@@ -420,7 +420,7 @@ static int profile_opt_perm(struct aa_profile *profile, int op, u32 request,
 		return do_perms(profile, state, request, &sa);
 	}
 
-	return aa_profile_af_perm(profile, OP_LISTEN, sk->sk_family,
+	return aa_profile_af_perm(profile, op, sk->sk_family,
 				  sk->sk_type, sk->sk_protocol, sk);
 }
 
