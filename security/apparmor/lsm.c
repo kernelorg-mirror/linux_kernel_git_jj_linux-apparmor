@@ -884,7 +884,9 @@ static int apparmor_socket_create(int family, int type, int protocol, int kern)
  * Note:
  * -   kernel sockets currently labeled unconfined but we may want to
  *     move to a special kernel label
- * -   socket likely does not have sk here, sk labeling done in sock_graft
+ * -   socket may not have sk here if created with sock_create_lite or
+ *     sock_alloc. These should be accept cases which will be handled in
+ *     sock_graft.
  */
 static int apparmor_socket_post_create(struct socket *sock, int family,
 				       int type, int protocol, int kern)
@@ -1114,17 +1116,16 @@ static int apparmor_socket_getpeersec_dgram(struct socket *sock,
  *
  * Note: could set off of SOCK_CXT(parent) but need to track inode and we can
  *       just set sk security information off of current creating process label
- * ??? in write_lock_bh, EAGAIN and no sleep
+ *       Labeling of sk for accept case - probably should be sock based
+ *       instead of task, because of the case where an implicitly labeled
+ *       socket is shared by different tasks.
  */
 static void apparmor_sock_graft(struct sock *sk, struct socket *parent)
 {
 	struct aa_sk_cxt *cxt = SK_CXT(sk);
-	if (cxt->label) {
+	if (!cxt->label)
 		//printk("%s: cxt->label\n", __FUNCTION__);
-		aa_put_label(cxt->label);
-	}
-
-	cxt->label = aa_get_current_label();
+		cxt->label = aa_get_current_label();
 }
 
 static int apparmor_task_kill(struct task_struct *target, struct siginfo *info,
