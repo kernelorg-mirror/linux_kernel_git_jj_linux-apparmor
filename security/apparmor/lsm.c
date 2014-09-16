@@ -322,8 +322,6 @@ static int apparmor_path_rmdir(struct path *dir, struct dentry *dentry)
 static int apparmor_path_mknod(struct path *dir, struct dentry *dentry,
 			       umode_t mode, unsigned int dev)
 {
-if (!path_mediated_fs(dir->dentry->d_inode))
-printk("apparmor mknod on a %s mediated fs? %d\n", aa_imode_name(mode), path_mediated_fs(dir->dentry->d_inode));
 	return common_perm_create(OP_MKNOD, dir, dentry, AA_MAY_CREATE, mode);
 }
 
@@ -475,26 +473,7 @@ static int common_file_perm(int op, struct file *file, u32 mask)
 
 static int apparmor_file_receive(struct file *file)
 {
-	struct aa_file_cxt *fcxt = file_cxt(file);
-	struct aa_label *label;
-	int error;
-
-int foo = 0;
-label = aa_begin_current_label();
-
-rcu_read_lock();
-if (label != rcu_dereference(fcxt->label)) {
-	foo = 1;
-	printk("apparmor %s received file with labeling ", label->hname);
-	aa_label_printk(labels_ns(label), rcu_dereference(fcxt->label), false, GFP_ATOMIC);
- }
-rcu_read_unlock();
-aa_end_current_label(label);
-
-	error = common_file_perm(OP_FRECEIVE, file, aa_map_file_to_perms(file));
-if (foo)
-printk(" result %d\n", error);
-	return error;
+	return common_file_perm(OP_FRECEIVE, file, aa_map_file_to_perms(file));
 }
 
 static int apparmor_file_permission(struct file *file, int mask)
@@ -831,21 +810,14 @@ printk("apparmor warning %s: !aa_label_is_subset(sk_cxt->label, label\n", __FUNC
 		new_cxt->label = aa_get_label(peer_cxt->label);
 
 	/* Cross reference the peer labels for SO_PEERSEC */
-	if (new_cxt->peer) {
-		//printk("%s: new_cxt->peer\n", __FUNCTION__);
+	if (new_cxt->peer)
 		aa_put_label(new_cxt->peer);
-	}
-	if (sk_cxt->peer) {
-		//printk("%s: sock_cxt->peer\n", __FUNCTION__);
+
+	if (sk_cxt->peer)
 		aa_put_label(sk_cxt->peer);
-	}
 
 	new_cxt->peer = aa_get_label(sk_cxt->label);
 	sk_cxt->peer = aa_get_label(peer_cxt->label);
-
-//     print_sk(sock);
-//     print_sk(other);
-//     print_sk(newsk);
 
 	return 0;
 }
@@ -1132,7 +1104,6 @@ static void apparmor_sock_graft(struct sock *sk, struct socket *parent)
 {
 	struct aa_sk_cxt *cxt = SK_CXT(sk);
 	if (!cxt->label)
-		//printk("%s: cxt->label\n", __FUNCTION__);
 		cxt->label = aa_get_current_label();
 }
 

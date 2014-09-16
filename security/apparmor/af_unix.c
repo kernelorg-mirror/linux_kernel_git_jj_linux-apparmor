@@ -565,11 +565,9 @@ int aa_unix_file_perm(struct aa_label *label, int op, u32 request,
 
 	unix_state_double_lock(sock->sk, peer_sk);
 	if (UNIX_FS(sock->sk)) {
-printk("apparmor unix_file fs socket "); print_sk(sock->sk); printk("\n");
 		error = unix_fs_perm(op, request, label, unix_sk(sock->sk),
 				     PATH_SOCK_COND);
 	} else if (UNIX_FS(peer_sk)) {
-printk("apparmor unix_file fs peer socket "); print_sk(peer_sk); printk("\n");
 		error = unix_fs_perm(op, request, label, unix_sk(peer_sk),
 				     PATH_SOCK_COND);
 	} else {
@@ -577,7 +575,6 @@ printk("apparmor unix_file fs peer socket "); print_sk(peer_sk); printk("\n");
 		if (sk_req)
 			error = aa_unix_label_sk_perm(label, op, sk_req,
 						      sock->sk);
-printk("apparmor unix_file cross check "); print_sk(sock->sk); printk("\n");
 		last_error(error,
 			xcheck(aa_unix_peer_perm(label, op,
 						 MAY_READ | MAY_WRITE,
@@ -587,8 +584,6 @@ printk("apparmor unix_file cross check "); print_sk(sock->sk); printk("\n");
 						 peer_sk, sock->sk)));
 	}
 
-// update label
-// update peer label
 	unix_state_double_unlock(sock->sk, peer_sk);
 	sock_put(peer_sk);
 
