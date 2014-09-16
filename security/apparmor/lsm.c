@@ -822,6 +822,14 @@ printk("apparmor warning %s: !aa_label_is_subset(sk_cxt->label, label\n", __FUNC
 	if (error)
 		return error;
 
+	/* label newsk if it wasn't labeled in post_create. Normally this
+	 * would be done in sock_graft, but because we are directly looking
+	 * at the peer_sk to obtain peer_labeling for unix socks this
+	 * does not work
+	 */
+	if (!new_cxt->label)
+		new_cxt->label = aa_get_label(peer_cxt->label);
+
 	/* Cross reference the peer labels for SO_PEERSEC */
 	if (new_cxt->peer) {
 		//printk("%s: new_cxt->peer\n", __FUNCTION__);
