@@ -302,9 +302,8 @@ int aa_sock_create_perm(struct aa_label *label, int family, int type,
 				    type, protocol, NULL));
 }
 
-/* connect, bind */
-int aa_sock_addr_perm(int op, u32 request, struct socket *sock,
-		      struct sockaddr *address, int addrlen)
+int aa_sock_bind_perm(struct socket *sock, struct sockaddr *address,
+		      int addrlen)
 {
 	AA_BUG(!sock);
 	AA_BUG(!sock->sk);
@@ -313,8 +312,22 @@ int aa_sock_addr_perm(int op, u32 request, struct socket *sock,
 	AA_BUG(in_interrupt());
 
 	return af_select(sock->sk->sk_family,
-			 addr_perm(op, request, sock, address, addrlen),
-			 aa_sk_perm(op, request, sock->sk));
+			 bind_perm(sock, address, addrlen),
+			 aa_sk_perm(OP_BIND, AA_MAY_BIND, sock->sk));
+}
+
+int aa_sock_connect_perm(struct socket *sock, struct sockaddr *address,
+			 int addrlen)
+{
+	AA_BUG(!sock);
+	AA_BUG(!sock->sk);
+	AA_BUG(!address);
+	/* TODO: .... */
+	AA_BUG(in_interrupt());
+
+	return af_select(sock->sk->sk_family,
+			 connect_perm(sock, address, addrlen),
+			 aa_sk_perm(OP_CONNECT, AA_MAY_CONNECT, sock->sk));
 }
 
 int aa_sock_listen_perm(struct socket *sock, int backlog)

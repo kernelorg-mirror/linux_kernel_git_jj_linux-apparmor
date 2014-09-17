@@ -73,20 +73,14 @@ static unsigned int match_addr(struct aa_profile *profile, unsigned int state,
 	return state;
 }
 
-static unsigned int match_to_sk(struct aa_profile *profile,
-				unsigned int state, struct unix_sock *u,
-				const char **info)
+static unsigned int match_to_local(struct aa_profile *profile,
+				   unsigned int state, int type, int protocol,
+				   struct sockaddr_un *addr, int addrlen,
+				   const char **info)
 {
-	state = match_to_prot(profile, state, u->sk.sk_type, u->sk.sk_protocol,
-			      info);
+	state = match_to_prot(profile, state, type, protocol, info);
 	if (state) {
-		struct sockaddr_un *addr = NULL;
-		int len = 0;
-		if (u->addr) {
-			addr = u->addr->name;
-			len = u->addr->len;
-		}
-		state = match_addr(profile, state, addr, len);
+		state = match_addr(profile, state, addr, addrlen);
 		if (state) {
 			/* todo: local label matching */
 			state = aa_dfa_null_transition(profile->policy.dfa,
@@ -98,6 +92,22 @@ static unsigned int match_to_sk(struct aa_profile *profile,
 	}
 
 	return state;
+}
+
+static unsigned int match_to_sk(struct aa_profile *profile,
+				unsigned int state, struct unix_sock *u,
+				const char **info)
+{
+	struct sockaddr_un *addr = NULL;
+	int addrlen = 0;
+
+	if (u->addr) {
+		addr = u->addr->name;
+		addrlen = u->addr->len;
+	}
+
+	return match_to_local(profile, state, u->sk.sk_type, u->sk.sk_protocol,
+			      addr, addrlen, info);
 }
 
 #define CMD_ADDR	1
@@ -121,12 +131,13 @@ static inline unsigned int match_to_cmd(struct aa_profile *profile,
 static inline unsigned int match_to_peer(struct aa_profile *profile,
 					 unsigned int state,
 					 struct unix_sock *u,
-					 struct sockaddr_un *addr, int addrlen,
+					 struct sockaddr_un *peer_addr,
+					 int peer_addrlen,
 					 const char **info)
 {
 	state = match_to_cmd(profile, state, u, CMD_ADDR, info);
 	if (state) {
-		state = match_addr(profile, state, addr, addrlen);
+		state = match_addr(profile, state, peer_addr, peer_addrlen);
 		if (!state)
 			*info = "failed peer address match";
 	}
@@ -251,9 +262,8 @@ int aa_unix_sock_perm(int op, u32 request, struct socket *sock)
 	return unix_label_sock_perm(aa_current_label(), op, request, sock);
 }
 
-static int profile_addr_perm(struct aa_profile *profile, int op, u32 request,
-			     struct sock *sk, struct sockaddr *addr,
-			     int addrlen)
+static int profile_bind_perm(struct aa_profile *profile, struct sock *sk,
+			     struct sockaddr *addr, int addrlen)
 {
 	unsigned int state;
 
@@ -266,38 +276,44 @@ static int profile_addr_perm(struct aa_profile *profile, int op, u32 request,
 	state = PROFILE_MEDIATES_AF(profile, AF_UNIX);
 	if (state) {
 		/* bind for abstract socket */
-		DEFINE_AUDIT_UNIX(sa, op, sk, sk->sk_type, sk->sk_protocol);
+		DEFINE_AUDIT_UNIX(sa, OP_BIND, sk, sk->sk_type,
+				  sk->sk_protocol);
 		aad(&sa)->net.addr = unix_addr(addr);
 		aad(&sa)->net.addrlen = addrlen;
 
-		state = match_to_peer(profile, state, unix_sk(sk),
-				      unix_addr(addr), addrlen,
-				      &aad(&sa)->info);
-		return do_perms(profile, state, request, &sa);
+		state = match_to_local(profile, state,
+				       sk->sk_type, sk->sk_protocol,
+				       unix_addr(addr), addrlen,
+				       &aad(&sa)->info);
+		return do_perms(profile, state, AA_MAY_BIND, &sa);
 	}
 
-	return aa_profile_af_perm(profile, op, sk->sk_family, sk->sk_type,
+	return aa_profile_af_perm(profile, OP_BIND, sk->sk_family, sk->sk_type,
 				  sk->sk_protocol, sk);
 }
 
-/* connect, bind */
-int aa_unix_addr_perm(int op, u32 request, struct socket *sock,
-		      struct sockaddr *address, int addrlen)
+int aa_unix_bind_perm(struct socket *sock, struct sockaddr *address,
+		      int addrlen)
 {
 	struct aa_profile *profile;
 	struct aa_label *label = aa_current_label();
 
-	/* unix connections are also covered by the
-	 * - unix_stream_connect (stream) and unix_may_send hooks (dgram)
-	 * - fs connect/bind are handled by mknod/open
-	 */
-	if (unconfined(label) || (request & AA_MAY_CONNECT) ||
-	    unix_addr_fs(address, addrlen))
+	 /* fs bind is handled by mknod */
+	if (unconfined(label) || unix_addr_fs(address, addrlen))
 		return 0;
 
 	return fn_for_each_confined(label, profile,
-			profile_addr_perm(profile, op, request,
-					  sock->sk, address, addrlen));
+			profile_bind_perm(profile, sock->sk, address, addrlen));
+}
+
+int aa_unix_connect_perm(struct socket *sock, struct sockaddr *address,
+			 int addrlen)
+{
+	/* unix connections are covered by the
+	 * - unix_stream_connect (stream) and unix_may_send hooks (dgram)
+	 * - fs connect is handled by open
+	 */
+	return 0;
 }
 
 static int profile_listen_perm(struct aa_profile *profile, struct sock *sk,

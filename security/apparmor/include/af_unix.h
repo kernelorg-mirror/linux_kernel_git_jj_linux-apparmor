@@ -104,8 +104,10 @@ int aa_unix_label_sk_perm(struct aa_label *label, int op, u32 request,
 int aa_unix_sock_perm(int op, u32 request, struct socket *sock);
 int aa_unix_create_perm(struct aa_label *label, int family, int type,
 			int protocol);
-int aa_unix_addr_perm(int op, u32 request, struct socket *sock,
-		      struct sockaddr *address, int addrlen);
+int aa_unix_bind_perm(struct socket *sock, struct sockaddr *address,
+		      int addrlen);
+int aa_unix_connect_perm(struct socket *sock, struct sockaddr *address,
+			 int addrlen);
 int aa_unix_listen_perm(struct socket *sock, int backlog);
 int aa_unix_accept_perm(struct socket *sock, struct socket *newsock);
 int aa_unix_msg_perm(int op, u32 request, struct socket *sock,

@@ -88,8 +88,10 @@ int aa_af_perm(struct aa_label *label, int op, u32 request, u16 family,
 int aa_sock_perm(int op, u32 request, struct socket *sock);
 int aa_sock_create_perm(struct aa_label *label, int family, int type,
 			int protocol);
-int aa_sock_addr_perm(int op, u32 request, struct socket *sock,
-		      struct sockaddr *address, int addrlen);
+int aa_sock_bind_perm(struct socket *sock, struct sockaddr *address,
+		      int addrlen);
+int aa_sock_connect_perm(struct socket *sock, struct sockaddr *address,
+			 int addrlen);
 int aa_sock_listen_perm(struct socket *sock, int backlog);
 int aa_sock_accept_perm(struct socket *sock, struct socket *newsock);
 int aa_sock_msg_perm(int op, u32 request, struct socket *sock,

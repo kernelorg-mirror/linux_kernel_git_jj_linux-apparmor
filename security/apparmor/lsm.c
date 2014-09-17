@@ -894,7 +894,7 @@ static int apparmor_socket_post_create(struct socket *sock, int family,
 static int apparmor_socket_bind(struct socket *sock,
 				struct sockaddr *address, int addrlen)
 {
-	return aa_sock_addr_perm(OP_BIND, AA_MAY_BIND, sock, address, addrlen);
+	return aa_sock_bind_perm(sock, address, addrlen);
 }
 
 /**
@@ -903,8 +903,7 @@ static int apparmor_socket_bind(struct socket *sock,
 static int apparmor_socket_connect(struct socket *sock,
 				   struct sockaddr *address, int addrlen)
 {
-	return aa_sock_addr_perm(OP_CONNECT, AA_MAY_CONNECT, sock,
-				 address, addrlen);
+	return aa_sock_connect_perm(sock, address, addrlen);
 }
 
 /**
