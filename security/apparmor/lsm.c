@@ -785,8 +785,6 @@ static int apparmor_unix_stream_connect(struct sock *sk, struct sock *peer_sk,
 	int error;
 
 	label = aa_begin_current_label();
-	if (!aa_label_is_subset(sk_cxt->label, label))
-printk("apparmor warning %s: !aa_label_is_subset(sk_cxt->label, label\n", __FUNCTION__);
 	error = aa_unix_peer_perm(label, OP_CONNECT,
 				(AA_MAY_CONNECT | AA_MAY_SEND | AA_MAY_RECEIVE),
 				  sk, peer_sk, NULL);

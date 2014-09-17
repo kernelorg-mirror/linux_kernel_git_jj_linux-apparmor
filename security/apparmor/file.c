@@ -699,7 +699,6 @@ void aa_inherit_files(const struct cred *cred, struct files_struct *files)
 		devnull = NULL;
 	/* replace all the matching ones with this */
 	do {
-printk("apparmor: replacing %d\n", n -1);
 		replace_fd(n - 1, devnull, 0);
 	} while ((n = iterate_fd(files, n, match_file, label)) != 0);
 	if (devnull)

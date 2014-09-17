@@ -517,7 +517,7 @@ int aa_unix_peer_perm(struct aa_label *label, int op, u32 request,
 
 		/* TODO: ns!!! */
 		if (!net_eq(sock_net(sk), sock_net(peer_sk))) {
-			printk("WARNING apparmor peer sock not in same ns\n");
+			;
 		}
 
 		if (unconfined(label))
