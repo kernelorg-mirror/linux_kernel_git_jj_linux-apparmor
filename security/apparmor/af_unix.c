@@ -454,9 +454,10 @@ int aa_unix_opt_perm(int op, u32 request, struct socket *sock, int level,
 					 level, optname));
 }
 
-
+/* null peer_label is allowed, in which case the peer_sk label is used */
 static int profile_peer_perm(struct aa_profile *profile, int op, u32 request,
 			     struct sock *sk, struct sock *peer_sk,
+			     struct aa_label *peer_label,
 			     struct common_audit_data *sa)
 {
 	unsigned int state;
@@ -479,7 +480,9 @@ static int profile_peer_perm(struct aa_profile *profile, int op, u32 request,
 		}
 		state = match_to_peer(profile, state, unix_sk(sk),
 				      addr, len, &aad(sa)->info);
-		return fn_for_each(peer_cxt->label, peerp,
+		if (!peer_label)
+			peer_label = peer_cxt->label;
+		return fn_for_each(peer_label, peerp,
 				   match_label(profile, peerp, state, request,
 					       sa));
 	}
@@ -490,10 +493,11 @@ static int profile_peer_perm(struct aa_profile *profile, int op, u32 request,
 
 /**
  *
- * Requires: lock helf on both @sk and @peer_sk
+ * Requires: lock held on both @sk and @peer_sk
  */
 int aa_unix_peer_perm(struct aa_label *label, int op, u32 request,
-		      struct sock *sk, struct sock *peer_sk)
+		      struct sock *sk, struct sock *peer_sk,
+		      struct aa_label *peer_label)
 {
 	struct unix_sock *peeru = unix_sk(peer_sk);
 	struct unix_sock *u = unix_sk(sk);
@@ -521,7 +525,7 @@ int aa_unix_peer_perm(struct aa_label *label, int op, u32 request,
 
 		return fn_for_each_confined(label, profile,
 				profile_peer_perm(profile, op, request, sk,
-						  peer_sk, &sa));
+						  peer_sk, peer_label, &sa));
 	}
 }
 
@@ -594,10 +598,10 @@ int aa_unix_file_perm(struct aa_label *label, int op, u32 request,
 		last_error(error,
 			xcheck(aa_unix_peer_perm(label, op,
 						 MAY_READ | MAY_WRITE,
-						 sock->sk, peer_sk),
+						 sock->sk, peer_sk, NULL),
 			       aa_unix_peer_perm(pcxt->label, op,
 						 MAY_READ | MAY_WRITE,
-						 peer_sk, sock->sk)));
+						 peer_sk, sock->sk, label)));
 	}
 
 	unix_state_double_unlock(sock->sk, peer_sk);

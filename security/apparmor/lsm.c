@@ -789,12 +789,12 @@ static int apparmor_unix_stream_connect(struct sock *sk, struct sock *peer_sk,
 printk("apparmor warning %s: !aa_label_is_subset(sk_cxt->label, label\n", __FUNCTION__);
 	error = aa_unix_peer_perm(label, OP_CONNECT,
 				(AA_MAY_CONNECT | AA_MAY_SEND | AA_MAY_RECEIVE),
-				sk, peer_sk);
+				  sk, peer_sk, NULL);
 	if (!UNIX_FS(peer_sk)) {
 		last_error(error,
 			aa_unix_peer_perm(peer_cxt->label, OP_CONNECT,
 				(AA_MAY_ACCEPT | AA_MAY_SEND | AA_MAY_RECEIVE),
-				 peer_sk, sk));
+				peer_sk, sk, label));
 	}
 	aa_end_current_label(label);
 
@@ -836,9 +836,9 @@ static int apparmor_unix_may_send(struct socket *sock, struct socket *peer)
 	int error;
 
 	error = xcheck(aa_unix_peer_perm(label, OP_SENDMSG, AA_MAY_SEND,
-					 sock->sk, peer->sk),
+					 sock->sk, peer->sk, NULL),
 		       aa_unix_peer_perm(peer_cxt->label, OP_SENDMSG, AA_MAY_RECEIVE,
-					 peer->sk, sock->sk));
+					 peer->sk, sock->sk, label));
 	aa_end_current_label(label);
 
 	return error;

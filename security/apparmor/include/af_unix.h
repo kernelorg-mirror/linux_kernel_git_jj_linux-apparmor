@@ -98,7 +98,8 @@ do {			       \
 
 
 int aa_unix_peer_perm(struct aa_label *label, int op, u32 request,
-		      struct sock *sk, struct sock *peer_sk);
+		      struct sock *sk, struct sock *peer_sk,
+		      struct aa_label *peer_label);
 int aa_unix_label_sk_perm(struct aa_label *label, int op, u32 request,
 			  struct sock *sk);
 int aa_unix_sock_perm(int op, u32 request, struct socket *sock);
