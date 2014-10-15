@@ -1756,15 +1756,27 @@ static struct aa_label *__label_update(struct aa_label *label)
 	if (invcount) {
 		l->size -= aa_sort_and_merge_profiles(l->size, &l->ent[0]);
 		if (labels_set(label) == labels_set(l)) {
-			AA_BUG(__aa_label_remove_and_insert(labels_set(label), label, l) != l);
+			goto insert;
 		} else {
 			aa_label_remove(labels_set(label), label);
 			goto other_ls_insert;
 		}
 	} else {
 		AA_BUG(labels_ns(label) != labels_ns(l));
-		AA_BUG(__aa_label_remove_and_insert(labels_set(label), label, l) != l);
+		goto insert;
 	}
+insert:
+	tmp = __aa_label_remove_and_insert(labels_set(label), label, l);
+	if (tmp != l) {
+		printk("apparmor: remove %p invalid %d: '", label, label_invalid(label)); aa_label_printk(labels_ns(label), label, false, GFP_ATOMIC); printk("', with %p invalid %d: '", l , label_invalid(l)); printk("', but found %p invalid %d: '", tmp, label_invalid(tmp)); aa_label_printk(labels_ns(tmp), tmp, false, GFP_ATOMIC); printk("'\n"); 
+		if (label_invalid(tmp)) {
+			AA_BUG(__aa_label_remove_and_insert(labels_set(l), tmp, l) != l);
+		} else {
+			aa_put_label(l);
+			l = aa_get_label(tmp);
+		}
+	}
+
 	write_unlock_irqrestore(&ls->lock, flags);
 
 	return l;
