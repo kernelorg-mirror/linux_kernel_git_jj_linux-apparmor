@@ -1539,8 +1539,9 @@ void aa_label_printk(struct aa_namespace *ns, struct aa_label *label, bool mode,
 	char *str;
 	int len;
 
-	AA_BUG(!ns);
 	AA_BUG(!label);
+	if (!ns)
+		ns = labels_ns(label);
 
 	if (!label_name_visible(ns, label)) {
 		labelstats_inc(printk_name_alloc);

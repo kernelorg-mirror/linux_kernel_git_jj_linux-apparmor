@@ -384,8 +384,17 @@ static inline struct aa_label *aa_get_newest_label(struct aa_label *l)
 	if (!l)
 		return NULL;
 
-	if (label_invalid(l))
+	if (label_invalid(l)) {
+		if (!l->replacedby) {
+			printk("apparmor: label %p ", l); aa_label_printk(NULL, l, false, GFP_ATOMIC); printk(" has null replacedby\n");
+			return NULL;
+		}
+		if (!l->replacedby->label) {
+			printk("apparmor: label %p ", l);  aa_label_printk(NULL, l, false, GFP_ATOMIC); printk(" replacedby points to NULL\n");
+			return NULL;
+		}
 		return aa_get_label_rcu(&l->replacedby->label);
+	}
 
 	return aa_get_label(l);
 }
