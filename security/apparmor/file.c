@@ -278,9 +278,9 @@ unsigned int aa_str_perms(struct aa_dfa *dfa, unsigned int start,
 	return state;
 }
 
-static int path_perm(int op, struct aa_profile *profile, const char *name,
-		     u32 request, struct path_cond *cond, int flags,
-		     struct file_perms *perms)
+int __aa_path_perm(int op, struct aa_profile *profile, const char *name,
+		   u32 request, struct path_cond *cond, int flags,
+		   struct file_perms *perms)
 {
 	int e = 0;
 	if (profile_unconfined(profile) ||
@@ -318,12 +318,12 @@ int aa_path_perm(int op, struct aa_label *label, struct path *path,
 		(S_ISDIR(cond->mode) ? PATH_IS_DIR : 0);
 	get_buffers(buffer);
 
-	error = path_name(op, label, path, flags, buffer, &name, cond, request,
-			  true);
+	error = path_name(op, label, path, flags, buffer, &name, cond,
+			  request, true);
 	if (!error)
 		error = fn_for_each_confined(label, profile,
-				path_perm(op, profile, name, request, cond,
-					  flags, &perms));
+				__aa_path_perm(op, profile, name, request, cond,
+					       flags, &perms));
 
 	put_buffers(buffer);
 	return error;
@@ -531,8 +531,8 @@ static int __file_path_perm(int op, struct aa_label *label,
 
 	/* check every profile in task label not in current cache */
 	error = fn_for_each_not_in_set(flabel, label, profile,
-			path_perm(op, profile, name, request, &cond, 0,
-				  &perms));
+			__aa_path_perm(op, profile, name, request, &cond, 0,
+				       &perms));
 	if (denied) {
 		/* check every profile in file label that was not tested
 		 * in the initial check above.
@@ -542,8 +542,8 @@ static int __file_path_perm(int op, struct aa_label *label,
 		/* TODO: don't audit here */
 		last_error(error,
 			fn_for_each_not_in_set(label, flabel, profile,
-				path_perm(op, profile, name, request, &cond,
-					  0, &perms)));
+				__aa_path_perm(op, profile, name, request,
+					       &cond, 0, &perms)));
 	}
 	if (!error)
 		update_file_cxt(file_cxt(file), label, request);

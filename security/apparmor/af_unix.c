@@ -28,7 +28,28 @@ static inline int unix_fs_perm(int op, u32 mask, struct aa_label *label,
 	AA_BUG(!u);
 	AA_BUG(!UNIX_FS(u));
 
-	if (!unconfined(label) && LABEL_MEDIATES(label, AA_CLASS_FILE)) {
+	if (unconfined(label) || !LABEL_MEDIATES(label, AA_CLASS_FILE))
+		return 0;
+
+	if (!u->path.dentry) {
+		struct path_cond cond = { };
+		struct file_perms perms = { };
+		struct aa_profile *profile;
+
+		/* socket path has been cleared because it is being shutdown */
+		/* TODO: fix flags */
+		if (!(flags & PATH_MEDIATE_DELETED))
+			return -EACCES;
+		/* Mediate at original socket location */
+		/* TODO: ns disconnected paths */
+		/* TODO: after switch to newer audit provide deleted/shutdown
+		 *       message as part of audit info
+		 */
+		return fn_for_each_confined(label, profile,
+				__aa_path_perm(op, profile,
+					       u->addr->name->sun_path,
+					       mask, &cond, flags, &perms));
+	} else {
 		/* the sunpath may not be valid for this ns so use the path */
 		struct path_cond cond = { u->path.dentry->d_inode->i_uid,
 					  u->path.dentry->d_inode->i_mode
