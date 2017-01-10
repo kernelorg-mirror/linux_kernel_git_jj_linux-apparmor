@@ -248,8 +248,8 @@ static inline void tomoyo_del_domain(struct list_head *element)
 	struct tomoyo_acl_info *tmp;
 	/*
 	 * Since this domain is referenced from neither
-	 * "struct tomoyo_io_buffer" nor "struct cred"->security, we can delete
-	 * elements without checking for is_deleted flag.
+	 * "struct tomoyo_io_buffer" nor "struct tomoyo_security",
+	 * we can delete elements without checking for is_deleted flag.
 	 */
 	list_for_each_entry_safe(acl, tmp, &domain->acl_info_list, list) {
 		tomoyo_del_acl(&acl->list);
@@ -433,7 +433,7 @@ static void tomoyo_try_to_gc(const enum tomoyo_policy_id type,
 		break;
 	case TOMOYO_ID_DOMAIN:
 		/*
-		 * Don't kfree() until all "struct cred"->security forget this
+		 * Don't kfree() until all "struct tomoyo_security" forget this
 		 * element.
 		 */
 		if (atomic_read(&container_of

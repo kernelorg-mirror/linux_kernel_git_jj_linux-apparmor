@@ -911,6 +911,11 @@ struct tomoyo_policy_namespace {
 	const char *name;
 };
 
+struct tomoyo_security {
+	struct tomoyo_domain_info *tomoyo_domain_info;
+	struct tomoyo_domain_info *saved_domain_info; /* Maybe NULL. */
+};
+
 /********** Function prototypes. **********/
 
 bool tomoyo_address_matches_group(const bool is_ipv6, const __be32 *address,
@@ -1202,7 +1207,16 @@ static inline void tomoyo_put_group(struct tomoyo_group *group)
  */
 static inline struct tomoyo_domain_info *tomoyo_domain(void)
 {
-	return current_cred()->security;
+	struct tomoyo_security *ts = current->security;
+
+	if (ts->saved_domain_info && !current->in_execve) {
+		struct tomoyo_domain_info *domain = ts->tomoyo_domain_info;
+
+		ts->tomoyo_domain_info = ts->saved_domain_info;
+		ts->saved_domain_info = NULL;
+		atomic_dec(&domain->users);
+	}
+	return ts->tomoyo_domain_info;
 }
 
 /**
@@ -1215,7 +1229,7 @@ static inline struct tomoyo_domain_info *tomoyo_domain(void)
 static inline struct tomoyo_domain_info *tomoyo_real_domain(struct task_struct
 							    *task)
 {
-	return task_cred_xxx(task, security);
+	return ((struct tomoyo_security *) task->security)->tomoyo_domain_info;
 }
 
 /**

@@ -8,59 +8,42 @@
 #include "common.h"
 
 /**
- * tomoyo_cred_alloc_blank - Target for security_cred_alloc_blank().
+ * tomoyo_task_alloc - Target for security_task_alloc().
  *
- * @new: Pointer to "struct cred".
- * @gfp: Memory allocation flags.
+ * @task: Pointer to "struct task_struct".
+ * @clone_flags: Not used.
  *
- * Returns 0.
+ * Returns 0 on success, negative value otherwise.
  */
-static int tomoyo_cred_alloc_blank(struct cred *new, gfp_t gfp)
+static int tomoyo_task_alloc(struct task_struct *task,
+			     unsigned long clone_flags)
 {
-	new->security = NULL;
+	struct tomoyo_security *ts = kzalloc(sizeof(*ts), GFP_KERNEL);
+	struct tomoyo_domain_info *domain = tomoyo_domain();
+
+	if (!ts)
+		return -ENOMEM;
+	ts->tomoyo_domain_info = domain;
+	atomic_inc(&domain->users);
+	task->security = ts;
 	return 0;
 }
 
 /**
- * tomoyo_cred_prepare - Target for security_prepare_creds().
+ * tomoyo_task_free - Target for security_task_free().
  *
- * @new: Pointer to "struct cred".
- * @old: Pointer to "struct cred".
- * @gfp: Memory allocation flags.
- *
- * Returns 0.
+ * @task: Pointer to "struct task_struct".
  */
-static int tomoyo_cred_prepare(struct cred *new, const struct cred *old,
-			       gfp_t gfp)
+static void tomoyo_task_free(struct task_struct *task)
 {
-	struct tomoyo_domain_info *domain = old->security;
-	new->security = domain;
-	if (domain)
-		atomic_inc(&domain->users);
-	return 0;
-}
+	struct tomoyo_security *ts = task->security;
+	struct tomoyo_domain_info *domain = ts->tomoyo_domain_info;
 
-/**
- * tomoyo_cred_transfer - Target for security_transfer_creds().
- *
- * @new: Pointer to "struct cred".
- * @old: Pointer to "struct cred".
- */
-static void tomoyo_cred_transfer(struct cred *new, const struct cred *old)
-{
-	tomoyo_cred_prepare(new, old, 0);
-}
-
-/**
- * tomoyo_cred_free - Target for security_cred_free().
- *
- * @cred: Pointer to "struct cred".
- */
-static void tomoyo_cred_free(struct cred *cred)
-{
-	struct tomoyo_domain_info *domain = cred->security;
+	atomic_dec(&domain->users);
+	domain = ts->saved_domain_info;
 	if (domain)
 		atomic_dec(&domain->users);
+	kfree(ts);
 }
 
 /**
@@ -68,7 +51,7 @@ static void tomoyo_cred_free(struct cred *cred)
  *
  * @bprm: Pointer to "struct linux_binprm".
  *
- * Returns 0 on success, negative value otherwise.
+ * Returns 0.
  */
 static int tomoyo_bprm_set_creds(struct linux_binprm *bprm)
 {
@@ -86,19 +69,8 @@ static int tomoyo_bprm_set_creds(struct linux_binprm *bprm)
 	if (!tomoyo_policy_loaded)
 		tomoyo_load_policy(bprm->filename);
 #endif
-	/*
-	 * Release reference to "struct tomoyo_domain_info" stored inside
-	 * "bprm->cred->security". New reference to "struct tomoyo_domain_info"
-	 * stored inside "bprm->cred->security" will be acquired later inside
-	 * tomoyo_find_next_domain().
-	 */
-	atomic_dec(&((struct tomoyo_domain_info *)
-		     bprm->cred->security)->users);
-	/*
-	 * Tell tomoyo_bprm_check_security() is called for the first time of an
-	 * execve operation.
-	 */
-	bprm->cred->security = NULL;
+	/* Restore and clear saved_domain_info if needed. */
+	tomoyo_domain();
 	return 0;
 }
 
@@ -111,7 +83,8 @@ static int tomoyo_bprm_set_creds(struct linux_binprm *bprm)
  */
 static int tomoyo_bprm_check_security(struct linux_binprm *bprm)
 {
-	struct tomoyo_domain_info *domain = bprm->cred->security;
+	struct tomoyo_security *ts = current->security;
+	struct tomoyo_domain_info *domain = ts->saved_domain_info;
 
 	/*
 	 * Execute permission is checked against pathname passed to do_execve()
@@ -129,6 +102,24 @@ static int tomoyo_bprm_check_security(struct linux_binprm *bprm)
 	return tomoyo_check_open_permission(domain, &bprm->file->f_path,
 					    O_RDONLY);
 }
+
+/**
+ * tomoyo_bprm_check_security - Target for security_bprm_check().
+ *
+ * @bprm: Pointer to "struct linux_binprm".
+ */
+static void tomoyo_bprm_committed_creds(struct linux_binprm *bprm)
+{
+	struct tomoyo_security *ts = current->security;
+	struct tomoyo_domain_info *domain = ts->saved_domain_info;
+
+	/* Clear saved_domain_info if needed. */
+	if (domain) {
+		ts->saved_domain_info = NULL;
+		atomic_dec(&domain->users);
+	}
+}
+
 
 /**
  * tomoyo_inode_getattr - Target for security_inode_getattr().
@@ -497,12 +488,11 @@ static int tomoyo_socket_sendmsg(struct socket *sock, struct msghdr *msg,
  * registering TOMOYO.
  */
 static struct security_hook_list tomoyo_hooks[] = {
-	LSM_HOOK_INIT(cred_alloc_blank, tomoyo_cred_alloc_blank),
-	LSM_HOOK_INIT(cred_prepare, tomoyo_cred_prepare),
-	LSM_HOOK_INIT(cred_transfer, tomoyo_cred_transfer),
-	LSM_HOOK_INIT(cred_free, tomoyo_cred_free),
+	LSM_HOOK_INIT(task_alloc, tomoyo_task_alloc),
+	LSM_HOOK_INIT(task_free, tomoyo_task_free),
 	LSM_HOOK_INIT(bprm_set_creds, tomoyo_bprm_set_creds),
 	LSM_HOOK_INIT(bprm_check_security, tomoyo_bprm_check_security),
+	LSM_HOOK_INIT(bprm_committed_creds, tomoyo_bprm_committed_creds),
 	LSM_HOOK_INIT(file_fcntl, tomoyo_file_fcntl),
 	LSM_HOOK_INIT(file_open, tomoyo_file_open),
 	LSM_HOOK_INIT(path_truncate, tomoyo_path_truncate),
@@ -537,14 +527,16 @@ DEFINE_SRCU(tomoyo_ss);
  */
 static int __init tomoyo_init(void)
 {
-	struct cred *cred = (struct cred *) current_cred();
+	static struct tomoyo_security ts = {
+		.tomoyo_domain_info = &tomoyo_kernel_domain
+	};
 
 	if (!security_module_enable("tomoyo"))
 		return 0;
 	/* register ourselves with the security framework */
 	security_add_hooks(tomoyo_hooks, ARRAY_SIZE(tomoyo_hooks), "tomoyo");
 	printk(KERN_INFO "TOMOYO Linux initialized\n");
-	cred->security = &tomoyo_kernel_domain;
+	current->security = &ts;
 	tomoyo_mm_init();
 	return 0;
 }

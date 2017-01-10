@@ -5,6 +5,7 @@
  */
 
 #include <linux/security.h>
+#include <linux/lsm_hooks.h> /* security_module_enable() */
 #include "common.h"
 
 /**
@@ -66,18 +67,13 @@ static ssize_t tomoyo_write_self(struct file *file, const char __user *buf,
 			if (!new_domain) {
 				error = -ENOENT;
 			} else {
-				struct cred *cred = prepare_creds();
-				if (!cred) {
-					error = -ENOMEM;
-				} else {
-					struct tomoyo_domain_info *old_domain =
-						cred->security;
-					cred->security = new_domain;
-					atomic_inc(&new_domain->users);
-					atomic_dec(&old_domain->users);
-					commit_creds(cred);
-					error = 0;
-				}
+				struct tomoyo_domain_info *old_domain =
+					tomoyo_domain();
+				((struct tomoyo_security *) current->security)
+					->tomoyo_domain_info = new_domain;
+				atomic_inc(&new_domain->users);
+				atomic_dec(&old_domain->users);
+				error = 0;
 			}
 		}
 		tomoyo_read_unlock(idx);
@@ -236,7 +232,7 @@ static int __init tomoyo_initerface_init(void)
 	struct dentry *tomoyo_dir;
 
 	/* Don't create securityfs entries unless registered. */
-	if (current_cred()->security != &tomoyo_kernel_domain)
+	if (!security_module_enable("tomoyo"))
 		return 0;
 
 	tomoyo_dir = securityfs_create_dir("tomoyo", NULL);
