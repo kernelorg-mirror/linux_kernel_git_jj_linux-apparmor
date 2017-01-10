@@ -930,6 +930,11 @@ int security_task_create(unsigned long clone_flags)
 	return call_int_hook(task_create, 0, clone_flags);
 }
 
+int security_task_alloc(struct task_struct *task, unsigned long clone_flags)
+{
+	return call_int_hook(task_alloc, 0, task, clone_flags);
+}
+
 void security_task_free(struct task_struct *task)
 {
 	call_void_hook(task_free, task);
@@ -1769,6 +1774,7 @@ struct security_hook_heads security_hook_heads = {
 	.file_receive =	LIST_HEAD_INIT(security_hook_heads.file_receive),
 	.file_open =	LIST_HEAD_INIT(security_hook_heads.file_open),
 	.task_create =	LIST_HEAD_INIT(security_hook_heads.task_create),
+	.task_alloc =	LIST_HEAD_INIT(security_hook_heads.task_alloc),
 	.task_free =	LIST_HEAD_INIT(security_hook_heads.task_free),
 	.cred_alloc_blank =
 		LIST_HEAD_INIT(security_hook_heads.cred_alloc_blank),
