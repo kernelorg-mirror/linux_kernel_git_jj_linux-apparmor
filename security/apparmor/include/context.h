@@ -23,7 +23,7 @@
 #include "policy_ns.h"
 
 #define cred_ctx(X) ((X)->security)
-#define current_ctx() cred_ctx(current_cred())
+#define current_cred_ctx() cred_ctx(current_cred())
 
 /* struct aa_file_ctx - the AppArmor context the file was opened in
  * @perms: the permission the file was opened with
@@ -58,7 +58,7 @@ static inline void aa_free_file_context(struct aa_file_ctx *ctx)
 }
 
 /**
- * struct aa_task_ctx - primary label for confined tasks
+ * struct aa_cred_ctx - primary label for confined tasks
  * @profile: the current profile   (NOT NULL)
  * @exec: profile to transition to on next exec  (MAYBE NULL)
  * @previous: profile the task may return to     (MAYBE NULL)
@@ -69,17 +69,16 @@ static inline void aa_free_file_context(struct aa_file_ctx *ctx)
  *
  * TODO: make so a task can be confined by a stack of contexts
  */
-struct aa_task_ctx {
+struct aa_cred_ctx {
 	struct aa_profile *profile;
 	struct aa_profile *onexec;
 	struct aa_profile *previous;
 	u64 token;
 };
 
-struct aa_task_ctx *aa_alloc_task_context(gfp_t flags);
-void aa_free_task_context(struct aa_task_ctx *ctx);
-void aa_dup_task_context(struct aa_task_ctx *new,
-			 const struct aa_task_ctx *old);
+struct aa_cred_ctx *aa_alloc_cred_ctx(gfp_t flags);
+void aa_free_cred_ctx(struct aa_cred_ctx *ctx);
+void aa_dup_cred_ctx(struct aa_cred_ctx *new, const struct aa_cred_ctx *old);
 int aa_replace_current_profile(struct aa_profile *profile);
 int aa_set_current_onexec(struct aa_profile *profile);
 int aa_set_current_hat(struct aa_profile *profile, u64 token);
@@ -97,34 +96,34 @@ struct aa_profile *aa_get_task_profile(struct task_struct *task);
  */
 static inline struct aa_profile *aa_cred_profile(const struct cred *cred)
 {
-	struct aa_task_ctx *ctx = cred_ctx(cred);
+	struct aa_cred_ctx *ctx = cred_ctx(cred);
 
 	AA_BUG(!ctx || !ctx->profile);
 	return ctx->profile;
 }
 
 /**
- * __aa_task_profile - retrieve another task's profile
+ * __aa_cred_profile - retrieve another task's profile
  * @task: task to query  (NOT NULL)
  *
  * Returns: @task's profile without incrementing its ref count
  *
  * If @task != current needs to be called in RCU safe critical section
  */
-static inline struct aa_profile *__aa_task_profile(struct task_struct *task)
+static inline struct aa_profile *__aa_cred_profile(struct task_struct *task)
 {
 	return aa_cred_profile(__task_cred(task));
 }
 
 /**
- * __aa_task_is_confined - determine if @task has any confinement
+ * __aa_cred_is_confined - determine if @task has any confinement
  * @task: task to check confinement of  (NOT NULL)
  *
  * If @task != current needs to be called in RCU safe critical section
  */
-static inline bool __aa_task_is_confined(struct task_struct *task)
+static inline bool __aa_cred_is_confined(struct task_struct *task)
 {
-	return !unconfined(__aa_task_profile(task));
+	return !unconfined(__aa_cred_profile(task));
 }
 
 /**
@@ -150,7 +149,7 @@ static inline struct aa_profile *__aa_current_profile(void)
  */
 static inline struct aa_profile *aa_current_profile(void)
 {
-	const struct aa_task_ctx *ctx = current_ctx();
+	const struct aa_cred_ctx *ctx = current_cred_ctx();
 	struct aa_profile *profile;
 
 	AA_BUG(!ctx || !ctx->profile);
@@ -159,7 +158,7 @@ static inline struct aa_profile *aa_current_profile(void)
 		profile = aa_get_newest_profile(ctx->profile);
 		aa_replace_current_profile(profile);
 		aa_put_profile(profile);
-		ctx = current_ctx();
+		ctx = current_cred_ctx();
 	}
 
 	return ctx->profile;
@@ -171,10 +170,10 @@ static inline struct aa_ns *aa_get_current_ns(void)
 }
 
 /**
- * aa_clear_task_ctx_trans - clear transition tracking info from the ctx
+ * aa_clear_cred_ctx_trans - clear transition tracking info from the ctx
  * @ctx: task context to clear (NOT NULL)
  */
-static inline void aa_clear_task_ctx_trans(struct aa_task_ctx *ctx)
+static inline void aa_clear_cred_ctx_trans(struct aa_cred_ctx *ctx)
 {
 	aa_put_profile(ctx->previous);
 	aa_put_profile(ctx->onexec);

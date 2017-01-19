@@ -337,7 +337,7 @@ static struct aa_profile *x_to_profile(struct aa_profile *profile,
  */
 int apparmor_bprm_set_creds(struct linux_binprm *bprm)
 {
-	struct aa_task_ctx *ctx;
+	struct aa_cred_ctx *ctx;
 	struct aa_profile *profile, *new_profile = NULL;
 	struct aa_ns *ns;
 	char *buffer = NULL;
@@ -505,7 +505,7 @@ x_clear:
 	new_profile = NULL;
 
 	/* clear out all temporary/transitional state from the context */
-	aa_clear_task_ctx_trans(ctx);
+	aa_clear_cred_ctx_trans(ctx);
 
 audit:
 	error = aa_audit_file(profile, &perms, OP_EXEC, MAY_EXEC, name,
@@ -544,7 +544,7 @@ int apparmor_bprm_secureexec(struct linux_binprm *bprm)
 void apparmor_bprm_committing_creds(struct linux_binprm *bprm)
 {
 	struct aa_profile *profile = __aa_current_profile();
-	struct aa_task_ctx *new_ctx = cred_ctx(bprm->cred);
+	struct aa_cred_ctx *new_ctx = cred_ctx(bprm->cred);
 
 	/* bail out if unconfined or not changing profile */
 	if ((new_ctx->profile == profile) ||
@@ -603,7 +603,7 @@ static char *new_compound_name(const char *n1, const char *n2)
 int aa_change_hat(const char *hats[], int count, u64 token, bool permtest)
 {
 	const struct cred *cred;
-	struct aa_task_ctx *ctx;
+	struct aa_cred_ctx *ctx;
 	struct aa_profile *profile, *previous_profile, *hat = NULL;
 	char *name = NULL;
 	int i;
