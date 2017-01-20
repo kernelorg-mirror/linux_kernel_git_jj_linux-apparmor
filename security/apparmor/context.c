@@ -48,8 +48,6 @@ void aa_free_cred_ctx(struct aa_cred_ctx *ctx)
 {
 	if (ctx) {
 		aa_put_profile(ctx->profile);
-		aa_put_profile(ctx->previous);
-		aa_put_profile(ctx->onexec);
 
 		kzfree(ctx);
 	}
@@ -64,8 +62,6 @@ void aa_dup_cred_ctx(struct aa_cred_ctx *new, const struct aa_cred_ctx *old)
 {
 	*new = *old;
 	aa_get_profile(new->profile);
-	aa_get_profile(new->previous);
-	aa_get_profile(new->onexec);
 }
 
 /**
@@ -83,6 +79,43 @@ struct aa_profile *aa_get_task_profile(struct task_struct *task)
 	rcu_read_unlock();
 
 	return p;
+}
+
+/**
+ * aa_alloc_task_ctx - allocate a new task_ctx
+ * @flags: gfp flags for allocation
+ *
+ * Returns: allocated buffer or NULL on failure
+ */
+struct aa_task_ctx *aa_alloc_task_ctx(gfp_t flags)
+{
+	return kzalloc(sizeof(struct aa_task_ctx), flags);
+}
+
+/**
+ * aa_free_task_ctx - free a task_ctx
+ * @ctx: task_ctx to free (MAYBE NULL)
+ */
+void aa_free_task_ctx(struct aa_task_ctx *ctx)
+{
+	if (ctx) {
+		aa_put_profile(ctx->previous);
+		aa_put_profile(ctx->onexec);
+
+		kzfree(ctx);
+	}
+}
+
+/**
+ * aa_dup_task_ctx - duplicate a task context, incrementing reference counts
+ * @new: a blank task context      (NOT NULL)
+ * @old: the task context to copy  (NOT NULL)
+ */
+void aa_dup_task_ctx(struct aa_task_ctx *new, const struct aa_task_ctx *old)
+{
+	*new = *old;
+	aa_get_profile(new->previous);
+	aa_get_profile(new->onexec);
 }
 
 /**
@@ -112,7 +145,7 @@ int aa_replace_current_profile(struct aa_profile *profile)
 		/* if switching to unconfined or a different profile namespace
 		 * clear out context state
 		 */
-		aa_clear_cred_ctx_trans(ctx);
+		aa_clear_task_ctx(current_task_ctx());
 
 	/*
 	 * be careful switching ctx->profile, when racing replacement it
@@ -136,17 +169,13 @@ int aa_replace_current_profile(struct aa_profile *profile)
  */
 int aa_set_current_onexec(struct aa_profile *profile)
 {
-	struct aa_cred_ctx *ctx;
-	struct cred *new = prepare_creds();
-	if (!new)
-		return -ENOMEM;
+	struct aa_task_ctx *ctx;
 
-	ctx = cred_ctx(new);
+	ctx = current_task_ctx();
 	aa_get_profile(profile);
 	aa_put_profile(ctx->onexec);
 	ctx->onexec = profile;
 
-	commit_creds(new);
 	return 0;
 }
 
@@ -162,28 +191,33 @@ int aa_set_current_onexec(struct aa_profile *profile)
  */
 int aa_set_current_hat(struct aa_profile *profile, u64 token)
 {
+	struct aa_task_ctx *tctx = current_task_ctx();
 	struct aa_cred_ctx *ctx;
-	struct cred *new = prepare_creds();
-	if (!new)
-		return -ENOMEM;
+	struct cred *new;
+
 	AA_BUG(!profile);
 
+	new = prepare_creds();
+	if (!new)
+		return -ENOMEM;
+
 	ctx = cred_ctx(new);
-	if (!ctx->previous) {
+	if (!tctx->previous) {
 		/* transfer refcount */
-		ctx->previous = ctx->profile;
-		ctx->token = token;
-	} else if (ctx->token == token) {
+		tctx->previous = ctx->profile;
+		tctx->token = token;
+	} else if (tctx->token == token) {
 		aa_put_profile(ctx->profile);
 	} else {
 		/* previous_profile && ctx->token != token */
 		abort_creds(new);
 		return -EACCES;
 	}
+
 	ctx->profile = aa_get_newest_profile(profile);
 	/* clear exec on switching context */
-	aa_put_profile(ctx->onexec);
-	ctx->onexec = NULL;
+	aa_put_profile(tctx->onexec);
+	tctx->onexec = NULL;
 
 	commit_creds(new);
 	return 0;
@@ -200,28 +234,28 @@ int aa_set_current_hat(struct aa_profile *profile, u64 token)
  */
 int aa_restore_previous_profile(u64 token)
 {
+	struct aa_task_ctx *tctx = current_task_ctx();
 	struct aa_cred_ctx *ctx;
-	struct cred *new = prepare_creds();
+	struct cred *new;
+
+	if (tctx->token != token)
+		return -EACCES;
+	/* ignore restores when there is no saved profile */
+	if (!tctx->previous)
+		return 0;
+
+	new = prepare_creds();
 	if (!new)
 		return -ENOMEM;
-
 	ctx = cred_ctx(new);
-	if (ctx->token != token) {
-		abort_creds(new);
-		return -EACCES;
-	}
-	/* ignore restores when there is no saved profile */
-	if (!ctx->previous) {
-		abort_creds(new);
-		return 0;
-	}
 
 	aa_put_profile(ctx->profile);
-	ctx->profile = aa_get_newest_profile(ctx->previous);
+	ctx->profile = aa_get_newest_profile(tctx->previous);
 	AA_BUG(!ctx->profile);
 	/* clear exec && prev information when restoring to previous context */
-	aa_clear_cred_ctx_trans(ctx);
+	aa_clear_task_ctx(tctx);
 
 	commit_creds(new);
+
 	return 0;
 }

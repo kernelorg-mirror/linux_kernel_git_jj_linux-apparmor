@@ -338,6 +338,7 @@ static struct aa_profile *x_to_profile(struct aa_profile *profile,
 int apparmor_bprm_set_creds(struct linux_binprm *bprm)
 {
 	struct aa_cred_ctx *ctx;
+	struct aa_task_ctx *tctx;
 	struct aa_profile *profile, *new_profile = NULL;
 	struct aa_ns *ns;
 	char *buffer = NULL;
@@ -354,7 +355,9 @@ int apparmor_bprm_set_creds(struct linux_binprm *bprm)
 		return 0;
 
 	ctx = cred_ctx(bprm->cred);
+	tctx = current_task_ctx();
 	AA_BUG(!ctx);
+	AA_BUG(!tctx);
 
 	profile = aa_get_newest_profile(ctx->profile);
 	/*
@@ -380,9 +383,9 @@ int apparmor_bprm_set_creds(struct linux_binprm *bprm)
 	 */
 	if (unconfined(profile)) {
 		/* unconfined task */
-		if (ctx->onexec)
+		if (tctx->onexec)
 			/* change_profile on exec already been granted */
-			new_profile = aa_get_profile(ctx->onexec);
+			new_profile = aa_get_profile(tctx->onexec);
 		else
 			new_profile = find_attach(ns, &ns->base.profiles, name);
 		if (!new_profile)
@@ -397,10 +400,10 @@ int apparmor_bprm_set_creds(struct linux_binprm *bprm)
 
 	/* find exec permissions for name */
 	state = aa_str_perms(profile->file.dfa, state, name, &cond, &perms);
-	if (ctx->onexec) {
+	if (tctx->onexec) {
 		struct file_perms cp;
 		info = "change_profile onexec";
-		new_profile = aa_get_newest_profile(ctx->onexec);
+		new_profile = aa_get_newest_profile(tctx->onexec);
 		if (!(perms.allow & AA_MAY_ONEXEC))
 			goto audit;
 
@@ -409,8 +412,8 @@ int apparmor_bprm_set_creds(struct linux_binprm *bprm)
 		 * exec\0change_profile
 		 */
 		state = aa_dfa_null_transition(profile->file.dfa, state);
-		cp = change_profile_perms(profile, ctx->onexec->ns,
-					  ctx->onexec->base.name,
+		cp = change_profile_perms(profile, tctx->onexec->ns,
+					  tctx->onexec->base.name,
 					  AA_MAY_ONEXEC, state);
 
 		if (!(cp.allow & AA_MAY_ONEXEC))
@@ -504,9 +507,6 @@ x_clear:
 	ctx->profile = new_profile;
 	new_profile = NULL;
 
-	/* clear out all temporary/transitional state from the context */
-	aa_clear_cred_ctx_trans(ctx);
-
 audit:
 	error = aa_audit_file(profile, &perms, OP_EXEC, MAY_EXEC, name,
 			      new_profile ? new_profile->base.hname : NULL,
@@ -564,6 +564,10 @@ void apparmor_bprm_committing_creds(struct linux_binprm *bprm)
 void apparmor_bprm_committed_creds(struct linux_binprm *bprm)
 {
 	/* TODO: cleanup signals - ipc mediation */
+
+	/* clear out all temporary/transitional state from the context */
+	aa_clear_task_ctx(current_task_ctx());
+
 	return;
 }
 
@@ -604,6 +608,7 @@ int aa_change_hat(const char *hats[], int count, u64 token, bool permtest)
 {
 	const struct cred *cred;
 	struct aa_cred_ctx *ctx;
+	struct aa_task_ctx *tctx;
 	struct aa_profile *profile, *previous_profile, *hat = NULL;
 	char *name = NULL;
 	int i;
@@ -622,8 +627,9 @@ int aa_change_hat(const char *hats[], int count, u64 token, bool permtest)
 	/* released below */
 	cred = get_current_cred();
 	ctx = cred_ctx(cred);
+	tctx = current_task_ctx();
 	profile = aa_get_newest_profile(aa_cred_profile(cred));
-	previous_profile = aa_get_newest_profile(ctx->previous);
+	previous_profile = aa_get_newest_profile(tctx->previous);
 
 	if (unconfined(profile)) {
 		info = "unconfined";

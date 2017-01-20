@@ -100,6 +100,27 @@ static void apparmor_cred_transfer(struct cred *new, const struct cred *old)
 	aa_dup_cred_ctx(new_ctx, old_ctx);
 }
 
+static void apparmor_task_free(struct task_struct *task)
+{
+
+	aa_free_task_ctx(task_ctx(task));
+	task_ctx(task) = NULL;
+}
+
+static int apparmor_task_alloc(struct task_struct *task,
+			       unsigned long clone_flags)
+{
+	struct aa_task_ctx *new = aa_alloc_task_ctx(GFP_KERNEL);
+
+	if (!new)
+		return -ENOMEM;
+
+	aa_dup_task_ctx(new, current_task_ctx());
+	task_ctx(task) = new;
+
+	return 0;
+}
+
 static int apparmor_ptrace_access_check(struct task_struct *child,
 					unsigned int mode)
 {
@@ -484,15 +505,16 @@ static int apparmor_getprocattr(struct task_struct *task, char *name,
 	int error = -ENOENT;
 	/* released below */
 	const struct cred *cred = get_task_cred(task);
+	struct aa_task_ctx *tctx = current_task_ctx();
 	struct aa_cred_ctx *ctx = cred_ctx(cred);
 	struct aa_profile *profile = NULL;
 
 	if (strcmp(name, "current") == 0)
 		profile = aa_get_newest_profile(ctx->profile);
-	else if (strcmp(name, "prev") == 0  && ctx->previous)
-		profile = aa_get_newest_profile(ctx->previous);
-	else if (strcmp(name, "exec") == 0 && ctx->onexec)
-		profile = aa_get_newest_profile(ctx->onexec);
+	else if (strcmp(name, "prev") == 0  && tctx->previous)
+		profile = aa_get_newest_profile(tctx->previous);
+	else if (strcmp(name, "exec") == 0 && tctx->onexec)
+		profile = aa_get_newest_profile(tctx->onexec);
 	else
 		error = -EINVAL;
 
@@ -629,6 +651,8 @@ static struct security_hook_list apparmor_hooks[] = {
 	LSM_HOOK_INIT(bprm_committed_creds, apparmor_bprm_committed_creds),
 	LSM_HOOK_INIT(bprm_secureexec, apparmor_bprm_secureexec),
 
+	LSM_HOOK_INIT(task_free, apparmor_task_free),
+	LSM_HOOK_INIT(task_alloc, apparmor_task_alloc),
 	LSM_HOOK_INIT(task_setrlimit, apparmor_task_setrlimit),
 };
 
@@ -870,15 +894,25 @@ static int __init set_init_ctx(void)
 {
 	struct cred *cred = (struct cred *)current->real_cred;
 	struct aa_cred_ctx *ctx;
+	struct aa_task_ctx *tctx;
 
 	ctx = aa_alloc_cred_ctx(GFP_KERNEL);
 	if (!ctx)
-		return -ENOMEM;
+		goto fail_cred;
+	tctx = aa_alloc_task_ctx(GFP_KERNEL);
+	if (!tctx)
+		goto fail_task;
 
 	ctx->profile = aa_get_profile(root_ns->unconfined);
 	cred_ctx(cred) = ctx;
+	task_ctx(current) = tctx;
 
 	return 0;
+
+fail_task:
+	aa_free_cred_ctx(ctx);
+fail_cred:
+	return -ENOMEM;
 }
 
 static void destroy_buffers(void)
