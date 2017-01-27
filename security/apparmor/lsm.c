@@ -493,15 +493,15 @@ static int apparmor_getprocattr(struct task_struct *task, char *name,
 	int error = -ENOENT;
 	/* released below */
 	const struct cred *cred = get_task_cred(task);
-	struct aa_task_ctx *tctx = current_task_ctx();
+	struct aa_task_ctx *ctx = current_task_ctx();
 	struct aa_profile *profile = NULL;
 
 	if (strcmp(name, "current") == 0)
 		profile = aa_get_newest_profile(cred_profile(cred));
-	else if (strcmp(name, "prev") == 0  && tctx->previous)
-		profile = aa_get_newest_profile(tctx->previous);
-	else if (strcmp(name, "exec") == 0 && tctx->onexec)
-		profile = aa_get_newest_profile(tctx->onexec);
+	else if (strcmp(name, "prev") == 0  && ctx->previous)
+		profile = aa_get_newest_profile(ctx->previous);
+	else if (strcmp(name, "exec") == 0 && ctx->onexec)
+		profile = aa_get_newest_profile(ctx->onexec);
 	else
 		error = -EINVAL;
 
@@ -880,14 +880,14 @@ static int param_set_mode(const char *val, struct kernel_param *kp)
 static int __init set_init_ctx(void)
 {
 	struct cred *cred = (struct cred *)current->real_cred;
-	struct aa_task_ctx *tctx;
+	struct aa_task_ctx *ctx;
 
-	tctx = aa_alloc_task_ctx(GFP_KERNEL);
-	if (!tctx)
+	ctx = aa_alloc_task_ctx(GFP_KERNEL);
+	if (!ctx)
 		return -ENOMEM;
 
 	cred_profile(cred) = aa_get_profile(root_ns->unconfined);
-	task_ctx(current) = tctx;
+	task_ctx(current) = ctx;
 
 	return 0;
 }

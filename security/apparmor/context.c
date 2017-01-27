@@ -156,7 +156,7 @@ int aa_set_current_onexec(struct aa_profile *profile)
  */
 int aa_set_current_hat(struct aa_profile *profile, u64 token)
 {
-	struct aa_task_ctx *tctx = current_task_ctx();
+	struct aa_task_ctx *ctx = current_task_ctx();
 	struct cred *new;
 
 	AA_BUG(!profile);
@@ -165,11 +165,11 @@ int aa_set_current_hat(struct aa_profile *profile, u64 token)
 	if (!new)
 		return -ENOMEM;
 
-	if (!tctx->previous) {
+	if (!ctx->previous) {
 		/* transfer refcount */
-		tctx->previous = cred_profile(new);
-		tctx->token = token;
-	} else if (tctx->token == token) {
+		ctx->previous = cred_profile(new);
+		ctx->token = token;
+	} else if (ctx->token == token) {
 		aa_put_profile(cred_profile(new));
 	} else {
 		/* previous_profile && ctx->token != token */
@@ -179,8 +179,8 @@ int aa_set_current_hat(struct aa_profile *profile, u64 token)
 
 	cred_profile(new) = aa_get_newest_profile(profile);
 	/* clear exec on switching context */
-	aa_put_profile(tctx->onexec);
-	tctx->onexec = NULL;
+	aa_put_profile(ctx->onexec);
+	ctx->onexec = NULL;
 
 	commit_creds(new);
 	return 0;
@@ -197,13 +197,13 @@ int aa_set_current_hat(struct aa_profile *profile, u64 token)
  */
 int aa_restore_previous_profile(u64 token)
 {
-	struct aa_task_ctx *tctx = current_task_ctx();
+	struct aa_task_ctx *ctx = current_task_ctx();
 	struct cred *new;
 
-	if (tctx->token != token)
+	if (ctx->token != token)
 		return -EACCES;
 	/* ignore restores when there is no saved profile */
-	if (!tctx->previous)
+	if (!ctx->previous)
 		return 0;
 
 	new = prepare_creds();
@@ -211,10 +211,10 @@ int aa_restore_previous_profile(u64 token)
 		return -ENOMEM;
 
 	aa_put_profile(cred_profile(new));
-	cred_profile(new) = aa_get_newest_profile(tctx->previous);
+	cred_profile(new) = aa_get_newest_profile(ctx->previous);
 	AA_BUG(!cred_profile(new));
 	/* clear exec && prev information when restoring to previous context */
-	aa_clear_task_ctx(tctx);
+	aa_clear_task_ctx(ctx);
 
 	commit_creds(new);
 

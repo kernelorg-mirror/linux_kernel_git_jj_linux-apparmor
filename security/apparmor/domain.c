@@ -337,7 +337,7 @@ static struct aa_profile *x_to_profile(struct aa_profile *profile,
  */
 int apparmor_bprm_set_creds(struct linux_binprm *bprm)
 {
-	struct aa_task_ctx *tctx;
+	struct aa_task_ctx *ctx;
 	struct aa_profile *profile, *new_profile = NULL;
 	struct aa_ns *ns;
 	char *buffer = NULL;
@@ -353,8 +353,8 @@ int apparmor_bprm_set_creds(struct linux_binprm *bprm)
 	if (bprm->cred_prepared)
 		return 0;
 
-	tctx = current_task_ctx();
-	AA_BUG(!tctx);
+	ctx = current_task_ctx();
+	AA_BUG(!ctx);
 	AA_BUG(!cred_profile(bprm->cred));
 	profile = aa_get_newest_profile(cred_profile(bprm->cred));
 	/*
@@ -380,9 +380,9 @@ int apparmor_bprm_set_creds(struct linux_binprm *bprm)
 	 */
 	if (unconfined(profile)) {
 		/* unconfined task */
-		if (tctx->onexec)
+		if (ctx->onexec)
 			/* change_profile on exec already been granted */
-			new_profile = aa_get_profile(tctx->onexec);
+			new_profile = aa_get_profile(ctx->onexec);
 		else
 			new_profile = find_attach(ns, &ns->base.profiles, name);
 		if (!new_profile)
@@ -397,10 +397,10 @@ int apparmor_bprm_set_creds(struct linux_binprm *bprm)
 
 	/* find exec permissions for name */
 	state = aa_str_perms(profile->file.dfa, state, name, &cond, &perms);
-	if (tctx->onexec) {
+	if (ctx->onexec) {
 		struct file_perms cp;
 		info = "change_profile onexec";
-		new_profile = aa_get_newest_profile(tctx->onexec);
+		new_profile = aa_get_newest_profile(ctx->onexec);
 		if (!(perms.allow & AA_MAY_ONEXEC))
 			goto audit;
 
@@ -409,8 +409,8 @@ int apparmor_bprm_set_creds(struct linux_binprm *bprm)
 		 * exec\0change_profile
 		 */
 		state = aa_dfa_null_transition(profile->file.dfa, state);
-		cp = change_profile_perms(profile, tctx->onexec->ns,
-					  tctx->onexec->base.name,
+		cp = change_profile_perms(profile, ctx->onexec->ns,
+					  ctx->onexec->base.name,
 					  AA_MAY_ONEXEC, state);
 
 		if (!(cp.allow & AA_MAY_ONEXEC))
@@ -603,7 +603,7 @@ static char *new_compound_name(const char *n1, const char *n2)
 int aa_change_hat(const char *hats[], int count, u64 token, bool permtest)
 {
 	const struct cred *cred;
-	struct aa_task_ctx *tctx;
+	struct aa_task_ctx *ctx;
 	struct aa_profile *profile, *previous_profile, *hat = NULL;
 	char *name = NULL;
 	int i;
@@ -621,9 +621,9 @@ int aa_change_hat(const char *hats[], int count, u64 token, bool permtest)
 
 	/* released below */
 	cred = get_current_cred();
-	tctx = current_task_ctx();
+	ctx = current_task_ctx();
 	profile = aa_get_newest_profile(aa_cred_profile(cred));
-	previous_profile = aa_get_newest_profile(tctx->previous);
+	previous_profile = aa_get_newest_profile(ctx->previous);
 
 	if (unconfined(profile)) {
 		info = "unconfined";
