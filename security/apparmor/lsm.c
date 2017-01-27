@@ -49,12 +49,12 @@ DEFINE_PER_CPU(struct aa_buffers, aa_buffers);
  */
 
 /*
- * free the associated aa_cred_ctx and put its profiles
+ * put the associated profiles
  */
 static void apparmor_cred_free(struct cred *cred)
 {
-	aa_free_cred_ctx(cred_ctx(cred));
-	cred_ctx(cred) = NULL;
+	aa_put_profile(cred_profile(cred));
+	cred_profile(cred) = NULL;
 }
 
 /*
@@ -62,30 +62,19 @@ static void apparmor_cred_free(struct cred *cred)
  */
 static int apparmor_cred_alloc_blank(struct cred *cred, gfp_t gfp)
 {
-	/* freed by apparmor_cred_free */
-	struct aa_cred_ctx *ctx = aa_alloc_cred_ctx(gfp);
-
-	if (!ctx)
-		return -ENOMEM;
-
-	cred_ctx(cred) = ctx;
+	cred_profile(cred) = NULL;
 	return 0;
 }
 
 /*
- * prepare new aa_cred_ctx for modification by prepare_cred block
+ * prepare new cred profile for modification by prepare_cred block
  */
 static int apparmor_cred_prepare(struct cred *new, const struct cred *old,
 				 gfp_t gfp)
 {
-	/* freed by apparmor_cred_free */
-	struct aa_cred_ctx *ctx = aa_alloc_cred_ctx(gfp);
-
-	if (!ctx)
-		return -ENOMEM;
-
-	aa_dup_cred_ctx(ctx, cred_ctx(old));
-	cred_ctx(new) = ctx;
+	struct aa_profile *tmp = cred_profile(new);
+	cred_profile(new) = aa_get_newest_profile(cred_profile(old));
+	aa_put_profile(tmp);
 	return 0;
 }
 
@@ -94,10 +83,9 @@ static int apparmor_cred_prepare(struct cred *new, const struct cred *old,
  */
 static void apparmor_cred_transfer(struct cred *new, const struct cred *old)
 {
-	const struct aa_cred_ctx *old_ctx = cred_ctx(old);
-	struct aa_cred_ctx *new_ctx = cred_ctx(new);
-
-	aa_dup_cred_ctx(new_ctx, old_ctx);
+	struct aa_profile *tmp = cred_profile(new);
+	cred_profile(new) = aa_get_newest_profile(cred_profile(old));
+	aa_put_profile(tmp);
 }
 
 static void apparmor_task_free(struct task_struct *task)
@@ -506,11 +494,10 @@ static int apparmor_getprocattr(struct task_struct *task, char *name,
 	/* released below */
 	const struct cred *cred = get_task_cred(task);
 	struct aa_task_ctx *tctx = current_task_ctx();
-	struct aa_cred_ctx *ctx = cred_ctx(cred);
 	struct aa_profile *profile = NULL;
 
 	if (strcmp(name, "current") == 0)
-		profile = aa_get_newest_profile(ctx->profile);
+		profile = aa_get_newest_profile(cred_profile(cred));
 	else if (strcmp(name, "prev") == 0  && tctx->previous)
 		profile = aa_get_newest_profile(tctx->previous);
 	else if (strcmp(name, "exec") == 0 && tctx->onexec)
@@ -893,26 +880,16 @@ static int param_set_mode(const char *val, struct kernel_param *kp)
 static int __init set_init_ctx(void)
 {
 	struct cred *cred = (struct cred *)current->real_cred;
-	struct aa_cred_ctx *ctx;
 	struct aa_task_ctx *tctx;
 
-	ctx = aa_alloc_cred_ctx(GFP_KERNEL);
-	if (!ctx)
-		goto fail_cred;
 	tctx = aa_alloc_task_ctx(GFP_KERNEL);
 	if (!tctx)
-		goto fail_task;
+		return -ENOMEM;
 
-	ctx->profile = aa_get_profile(root_ns->unconfined);
-	cred_ctx(cred) = ctx;
+	cred_profile(cred) = aa_get_profile(root_ns->unconfined);
 	task_ctx(current) = tctx;
 
 	return 0;
-
-fail_task:
-	aa_free_cred_ctx(ctx);
-fail_cred:
-	return -ENOMEM;
 }
 
 static void destroy_buffers(void)

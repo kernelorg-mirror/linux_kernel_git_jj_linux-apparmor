@@ -337,7 +337,6 @@ static struct aa_profile *x_to_profile(struct aa_profile *profile,
  */
 int apparmor_bprm_set_creds(struct linux_binprm *bprm)
 {
-	struct aa_cred_ctx *ctx;
 	struct aa_task_ctx *tctx;
 	struct aa_profile *profile, *new_profile = NULL;
 	struct aa_ns *ns;
@@ -354,12 +353,10 @@ int apparmor_bprm_set_creds(struct linux_binprm *bprm)
 	if (bprm->cred_prepared)
 		return 0;
 
-	ctx = cred_ctx(bprm->cred);
 	tctx = current_task_ctx();
-	AA_BUG(!ctx);
 	AA_BUG(!tctx);
-
-	profile = aa_get_newest_profile(ctx->profile);
+	AA_BUG(!cred_profile(bprm->cred));
+	profile = aa_get_newest_profile(cred_profile(bprm->cred));
 	/*
 	 * get the namespace from the replacement profile as replacement
 	 * can change the namespace
@@ -502,9 +499,9 @@ apply:
 	bprm->per_clear |= PER_CLEAR_ON_SETID;
 
 x_clear:
-	aa_put_profile(ctx->profile);
-	/* transfer new profile reference will be released when ctx is freed */
-	ctx->profile = new_profile;
+	aa_put_profile(profile);
+	/* transfer new profile reference will be released when cred is freed */
+	cred_profile(bprm->cred) = new_profile;
 	new_profile = NULL;
 
 audit:
@@ -544,17 +541,16 @@ int apparmor_bprm_secureexec(struct linux_binprm *bprm)
 void apparmor_bprm_committing_creds(struct linux_binprm *bprm)
 {
 	struct aa_profile *profile = __aa_current_profile();
-	struct aa_cred_ctx *new_ctx = cred_ctx(bprm->cred);
+	struct aa_profile *new = cred_profile(bprm->cred);
 
 	/* bail out if unconfined or not changing profile */
-	if ((new_ctx->profile == profile) ||
-	    (unconfined(new_ctx->profile)))
+	if (new == profile || unconfined(new))
 		return;
 
 	current->pdeath_signal = 0;
 
 	/* reset soft limits and set hard limits for the new profile */
-	__aa_transition_rlimits(profile, new_ctx->profile);
+	__aa_transition_rlimits(profile, new);
 }
 
 /**
@@ -607,7 +603,6 @@ static char *new_compound_name(const char *n1, const char *n2)
 int aa_change_hat(const char *hats[], int count, u64 token, bool permtest)
 {
 	const struct cred *cred;
-	struct aa_cred_ctx *ctx;
 	struct aa_task_ctx *tctx;
 	struct aa_profile *profile, *previous_profile, *hat = NULL;
 	char *name = NULL;
@@ -626,7 +621,6 @@ int aa_change_hat(const char *hats[], int count, u64 token, bool permtest)
 
 	/* released below */
 	cred = get_current_cred();
-	ctx = cred_ctx(cred);
 	tctx = current_task_ctx();
 	profile = aa_get_newest_profile(aa_cred_profile(cred));
 	previous_profile = aa_get_newest_profile(tctx->previous);

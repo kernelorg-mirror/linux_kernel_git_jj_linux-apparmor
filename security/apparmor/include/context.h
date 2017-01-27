@@ -22,12 +22,9 @@
 #include "policy.h"
 #include "policy_ns.h"
 
-#define cred_ctx(X) ((X)->security)
-#define current_cred_ctx() cred_ctx(current_cred())
-
 #define task_ctx(X) ((X)->security)
 #define current_task_ctx() (task_ctx(current))
-
+#define cred_profile(X) ((X)->security)
 
 /* struct aa_file_ctx - the AppArmor context the file was opened in
  * @perms: the permission the file was opened with
@@ -62,22 +59,6 @@ static inline void aa_free_file_context(struct aa_file_ctx *ctx)
 }
 
 /**
- * struct aa_cred_ctx - primary label for confined tasks
- * @profile: the current profile   (NOT NULL)
- * @exec: profile to transition to on next exec  (MAYBE NULL)
- * @previous: profile the task may return to     (MAYBE NULL)
- * @token: magic value the task must know for returning to @previous_profile
- *
- * Contains the task's current profile (which could change due to
- * change_hat).  Plus the hat_magic needed during change_hat.
- *
- * TODO: make so a task can be confined by a stack of contexts
- */
-struct aa_cred_ctx {
-	struct aa_profile *profile;
-};
-
-/**
  * struct aa_task_ctx - information for current task label change
  * @onexec: profile to transition to on next exec  (MAY BE NULL)
  * @previous: profile the task may return to     (MAY BE NULL)
@@ -90,10 +71,6 @@ struct aa_task_ctx {
 	struct aa_profile *previous;
 	u64 token;
 };
-
-struct aa_cred_ctx *aa_alloc_cred_ctx(gfp_t flags);
-void aa_free_cred_ctx(struct aa_cred_ctx *ctx);
-void aa_dup_cred_ctx(struct aa_cred_ctx *new, const struct aa_cred_ctx *old);
 
 struct aa_task_ctx *aa_alloc_task_ctx(gfp_t flags);
 void aa_free_task_ctx(struct aa_task_ctx *ctx);
@@ -116,10 +93,11 @@ struct aa_profile *aa_get_task_profile(struct task_struct *task);
  */
 static inline struct aa_profile *aa_cred_profile(const struct cred *cred)
 {
-	struct aa_cred_ctx *ctx = cred_ctx(cred);
+	struct aa_profile *profile = cred_profile(cred);
 
-	AA_BUG(!ctx || !ctx->profile);
-	return ctx->profile;
+	AA_BUG(!profile);
+
+	return profile;
 }
 
 /**
@@ -169,19 +147,17 @@ static inline struct aa_profile *__aa_current_profile(void)
  */
 static inline struct aa_profile *aa_current_profile(void)
 {
-	const struct aa_cred_ctx *ctx = current_cred_ctx();
-	struct aa_profile *profile;
+	struct aa_profile *profile = __aa_current_profile();
 
-	AA_BUG(!ctx || !ctx->profile);
+	AA_BUG(!profile);
 
-	if (profile_is_stale(ctx->profile)) {
-		profile = aa_get_newest_profile(ctx->profile);
+	if (profile_is_stale(profile)) {
+		profile = aa_get_newest_profile(profile);
 		aa_replace_current_profile(profile);
 		aa_put_profile(profile);
-		ctx = current_cred_ctx();
 	}
 
-	return ctx->profile;
+	return profile;
 }
 
 static inline struct aa_ns *aa_get_current_ns(void)
