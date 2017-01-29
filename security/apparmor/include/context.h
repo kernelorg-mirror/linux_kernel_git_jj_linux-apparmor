@@ -101,14 +101,14 @@ static inline struct aa_profile *aa_cred_profile(const struct cred *cred)
 }
 
 /**
- * __aa_cred_profile - retrieve another task's profile
+ * __aa_task_profile - retrieve another task's profile
  * @task: task to query  (NOT NULL)
  *
  * Returns: @task's profile without incrementing its ref count
  *
  * If @task != current needs to be called in RCU safe critical section
  */
-static inline struct aa_profile *__aa_cred_profile(struct task_struct *task)
+static inline struct aa_profile *__aa_task_profile(struct task_struct *task)
 {
 	return aa_cred_profile(__task_cred(task));
 }
