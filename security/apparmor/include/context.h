@@ -114,17 +114,6 @@ static inline struct aa_profile *__aa_cred_profile(struct task_struct *task)
 }
 
 /**
- * __aa_cred_is_confined - determine if @task has any confinement
- * @task: task to check confinement of  (NOT NULL)
- *
- * If @task != current needs to be called in RCU safe critical section
- */
-static inline bool __aa_cred_is_confined(struct task_struct *task)
-{
-	return !unconfined(__aa_cred_profile(task));
-}
-
-/**
  * __aa_current_profile - find the current tasks confining profile
  *
  * Returns: up to date confining profile or the ns unconfined profile (NOT NULL)
