@@ -158,20 +158,18 @@ static inline struct aa_ns *aa_get_current_ns(void)
 
 
 /**
- * aa_clear_task_ctx_trans - clear transition tracking info from the ctx
+ * aa_clear_task_ctx - clear transition tracking info from the ctx
  * @ctx: task context to clear (NOT NULL)
  */
 static inline void aa_clear_task_ctx(struct aa_task_ctx *ctx)
 {
 	AA_BUG(!ctx);
 
-	if (ctx) {
 	aa_put_profile(ctx->previous);
 	aa_put_profile(ctx->onexec);
 	ctx->previous = NULL;
 	ctx->onexec = NULL;
 	ctx->token = 0;
-}
 }
 
 #endif /* __AA_CONTEXT_H */
