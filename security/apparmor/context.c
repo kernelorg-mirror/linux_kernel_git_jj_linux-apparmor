@@ -13,8 +13,8 @@
  * License.
  *
  *
- * AppArmor sets confinement on every task, via the cred_profile() and
- * which is required and are not allowed to be NULL.  The cred_profile is
+ * AppArmor sets confinement on every task, via the cred_profile() which
+ * is required and is not allowed to be NULL.  The cred_profile is
  * reference counted.
  *
  * TODO
