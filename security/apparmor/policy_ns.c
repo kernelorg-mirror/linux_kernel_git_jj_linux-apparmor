@@ -99,7 +99,9 @@ static struct aa_ns *alloc_ns(const char *prefix, const char *name)
 		goto fail_ns;
 
 	INIT_LIST_HEAD(&ns->sub_ns);
+	INIT_LIST_HEAD(&ns->rawdata_list);
 	mutex_init(&ns->lock);
+	init_waitqueue_head(&ns->wait);
 
 	/* released by aa_free_ns() */
 	ns->unconfined = aa_alloc_profile("unconfined", GFP_KERNEL);
