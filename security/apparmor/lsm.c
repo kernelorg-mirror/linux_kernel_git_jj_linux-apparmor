@@ -25,6 +25,7 @@
 #include <linux/user_namespace.h>
 #include <linux/kmemleak.h>
 #include <net/sock.h>
+#include <uapi/linux/xattr.h>
 
 #include "include/apparmor.h"
 #include "include/apparmorfs.h"
@@ -1109,6 +1110,11 @@ static void apparmor_sock_graft(struct sock *sk, struct socket *parent)
 }
 
 
+static int apparmor_ismaclabel(const char *name)
+{
+	return (strcmp(name, XATTR_APPARMOR_SUFFIX) == 0);
+}
+
 static struct security_hook_list apparmor_hooks[] __lsm_ro_after_init = {
 	LSM_HOOK_INIT(ptrace_access_check, apparmor_ptrace_access_check),
 	LSM_HOOK_INIT(ptrace_traceme, apparmor_ptrace_traceme),
@@ -1180,6 +1186,7 @@ static struct security_hook_list apparmor_hooks[] __lsm_ro_after_init = {
 	LSM_HOOK_INIT(task_setrlimit, apparmor_task_setrlimit),
 	LSM_HOOK_INIT(task_kill, apparmor_task_kill),
 
+	LSM_HOOK_INIT(ismaclabel, apparmor_ismaclabel),
 	LSM_HOOK_INIT(secid_to_secctx, apparmor_secid_to_secctx),
 	LSM_HOOK_INIT(secctx_to_secid, apparmor_secctx_to_secid),
 	LSM_HOOK_INIT(release_secctx, apparmor_release_secctx),
