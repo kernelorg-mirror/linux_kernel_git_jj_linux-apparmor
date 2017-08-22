@@ -128,7 +128,7 @@ static inline int map_signal_num(int sig)
 		return SIGUNKNOWN;
 	else if (sig >= SIGRTMIN)
 		return sig - SIGRTMIN + 128;	/* rt sigs mapped to 128 */
-	else if (sig <= MAXMAPPED_SIG)
+	else if (sig < MAXMAPPED_SIG)
 		return sig_map[sig];
 	return SIGUNKNOWN;
 }
