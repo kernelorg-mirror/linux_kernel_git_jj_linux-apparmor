@@ -706,6 +706,13 @@ static void apparmor_bprm_committed_creds(struct linux_binprm *bprm)
 }
 
 
+static void apparmor_task_getsecid(struct task_struct *p, u32 *secid)
+{
+	struct aa_label *label = aa_get_task_label(p);
+	*secid = label->secid;
+	aa_put_label(label);
+}
+
 static int apparmor_task_setrlimit(struct task_struct *task,
 		unsigned int resource, struct rlimit *new_rlim)
 {
@@ -1169,6 +1176,7 @@ static struct security_hook_list apparmor_hooks[] __lsm_ro_after_init = {
 	LSM_HOOK_INIT(bprm_committing_creds, apparmor_bprm_committing_creds),
 	LSM_HOOK_INIT(bprm_committed_creds, apparmor_bprm_committed_creds),
 
+	LSM_HOOK_INIT(task_getsecid, apparmor_task_getsecid),
 	LSM_HOOK_INIT(task_setrlimit, apparmor_task_setrlimit),
 	LSM_HOOK_INIT(task_kill, apparmor_task_kill),
 
