@@ -54,6 +54,10 @@ int aa_set_current_hat(struct aa_label *label, u64 token);
 int aa_restore_previous_label(u64 cookie);
 struct aa_label *aa_get_task_label(struct task_struct *task);
 
+static inline struct aa_label *inode_label(const struct inode *i)
+{
+	return i->i_security;
+}
 
 /**
  * aa_cred_raw_label - obtain cred's label

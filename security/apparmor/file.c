@@ -309,6 +309,10 @@ static int profile_path_perm(const char *op, struct aa_profile *profile,
 			  request);
 	if (error)
 		return error;
+	/* TODO: do we want to push this into path_perm??? */
+	if (inode_label(d_inode(path->dentry)))
+		/* match against label */
+		/* TODO */ ;
 	return __aa_path_perm(op, profile, name, request, cond, flags,
 			      perms);
 }
