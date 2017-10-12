@@ -60,7 +60,7 @@ static void audit_ptrace_cb(struct audit_buffer *ab, void *va)
 		}
 	}
 	audit_log_format(ab, " peer=");
-	aa_label_xaudit(ab, labels_ns(aad(sa)->label), aad(sa)->peer,
+	aa_label_xaudit(ab, labels_ns(aad(sa)->label), aad(sa)->olabel,
 			FLAGS_NONE, GFP_ATOMIC);
 }
 
@@ -76,7 +76,7 @@ static int profile_ptrace_perm(struct aa_profile *profile,
 	    !PROFILE_MEDIATES(profile, AA_CLASS_PTRACE))
 		return 0;
 
-	aad(sa)->peer = &peer->label;
+	aad(sa)->olabel = &peer->label;
 	aa_profile_match_label(profile, &peer->label, AA_CLASS_PTRACE, request,
 			       &perms);
 	aa_apply_modes_to_perms(profile, &perms);
@@ -97,7 +97,7 @@ static int cross_ptrace_perm(struct aa_profile *tracer,
 		return 0;
 
 	aad(sa)->label = &tracer->label;
-	aad(sa)->peer = &tracee->label;
+	aad(sa)->olabel = &tracee->label;
 	aad(sa)->request = 0;
 	aad(sa)->error = aa_capable(&tracer->label, CAP_SYS_PTRACE, 1);
 
@@ -169,7 +169,7 @@ static void audit_signal_cb(struct audit_buffer *ab, void *va)
 		audit_log_format(ab, " signal=rtmin+%d",
 				 aad(sa)->signal - 128);
 	audit_log_format(ab, " peer=");
-	aa_label_xaudit(ab, labels_ns(aad(sa)->label), aad(sa)->peer,
+	aa_label_xaudit(ab, labels_ns(aad(sa)->label), aad(sa)->olabel,
 			FLAGS_NONE, GFP_ATOMIC);
 }
 
@@ -197,7 +197,7 @@ static int profile_signal_perm(struct aa_profile *profile,
 	    !PROFILE_MEDIATES(profile, AA_CLASS_SIGNAL))
 		return 0;
 
-	aad(sa)->peer = &peer->label;
+	aad(sa)->olabel = &peer->label;
 	profile_match_signal(profile, peer->base.hname, aad(sa)->signal,
 			     &perms);
 	aa_apply_modes_to_perms(profile, &perms);

@@ -76,9 +76,9 @@ static void file_audit_cb(struct audit_buffer *ab, void *va)
 				 from_kuid(&init_user_ns, aad(sa)->fs.ouid));
 	}
 
-	if (aad(sa)->peer) {
+	if (aad(sa)->olabel) {
 		audit_log_format(ab, " target=");
-		aa_label_xaudit(ab, labels_ns(aad(sa)->label), aad(sa)->peer,
+		aa_label_xaudit(ab, labels_ns(aad(sa)->label), aad(sa)->olabel,
 				FLAG_VIEW_SUBNS, GFP_ATOMIC);
 	} else if (aad(sa)->fs.target) {
 		audit_log_format(ab, " target=");
@@ -113,7 +113,7 @@ int aa_audit_file(struct aa_profile *profile, struct aa_perms *perms,
 	aad(&sa)->request = request;
 	aad(&sa)->name = name;
 	aad(&sa)->fs.target = target;
-	aad(&sa)->peer = tlabel;
+	aad(&sa)->olabel = tlabel;
 	aad(&sa)->fs.ouid = ouid;
 	aad(&sa)->info = info;
 	aad(&sa)->error = error;

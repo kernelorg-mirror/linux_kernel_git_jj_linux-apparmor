@@ -98,9 +98,9 @@ void audit_net_cb(struct audit_buffer *ab, void *va)
 					   net_mask_names, NET_PERMS_MASK);
 		}
 	}
-	if (aad(sa)->peer) {
+	if (aad(sa)->olabel) {
 		audit_log_format(ab, " peer=");
-		aa_label_xaudit(ab, labels_ns(aad(sa)->label), aad(sa)->peer,
+		aa_label_xaudit(ab, labels_ns(aad(sa)->label), aad(sa)->olabel,
 				FLAGS_NONE, GFP_ATOMIC);
 	}
 }

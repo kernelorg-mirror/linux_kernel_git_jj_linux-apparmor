@@ -37,9 +37,9 @@ static void audit_cb(struct audit_buffer *ab, void *va)
 
 	audit_log_format(ab, " rlimit=%s value=%lu",
 			 rlim_names[aad(sa)->rlim.rlim], aad(sa)->rlim.max);
-	if (aad(sa)->peer) {
+	if (aad(sa)->olabel) {
 		audit_log_format(ab, " peer=");
-		aa_label_xaudit(ab, labels_ns(aad(sa)->label), aad(sa)->peer,
+		aa_label_xaudit(ab, labels_ns(aad(sa)->label), aad(sa)->olabel,
 				FLAGS_NONE, GFP_ATOMIC);
 	}
 }
@@ -61,7 +61,7 @@ static int audit_resource(struct aa_profile *profile, unsigned int resource,
 
 	aad(&sa)->rlim.rlim = resource;
 	aad(&sa)->rlim.max = value;
-	aad(&sa)->peer = peer;
+	aad(&sa)->olabel = peer;
 	aad(&sa)->info = info;
 	aad(&sa)->error = error;
 

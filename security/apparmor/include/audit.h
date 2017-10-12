@@ -120,7 +120,7 @@ struct apparmor_audit_data {
 	union {
 		/* these entries require a custom callback fn */
 		struct {
-			struct aa_label *peer;
+			struct aa_label *olabel;
 			union {
 				struct {
 					kuid_t ouid;
