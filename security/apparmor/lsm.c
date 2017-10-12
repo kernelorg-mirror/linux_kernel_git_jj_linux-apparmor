@@ -391,6 +391,54 @@ static int apparmor_inode_getattr(const struct path *path)
 	return common_perm_cond(OP_GETATTR, path, AA_MAY_GETATTR);
 }
 
+static int apparmor_inode_setxattr(struct dentry *dentry, const char *name,
+				   const void *value, size_t size, int flags)
+{
+
+	if (strcmp(name, XATTR_NAME_APPARMOR))
+		/* TODO: */;
+
+	/* TODO: */
+}
+
+static void apparmor_inode_post_setxattr(struct dentry *dentry,
+					 const char *name, const void *value,
+					 size_t size, int flags)
+{
+	if (strcmp(name, XATTR_NAME_APPARMOR))
+		/* Not apparmor ignore */
+		return;
+
+	/* TODO */
+}
+
+static int apparmor_inode_getxattr(struct dentry *dentry, const char *name)
+{
+	const struct cred *cred = current_cred();
+
+	/* TODO: */
+
+	return 0;
+}
+
+static int apparmor_inode_listxattr(struct dentry *dentry)
+{
+	const struct cred *cred = current_cred();
+
+	/* TODO: */
+
+	return 0;
+}
+
+static int apparmor_inode_removexattr(struct dentry *dentry, const char *name)
+{
+	if (strcmp(name, XATTR_NAME_APPARMOR))
+		/* TODO */ ;
+
+	/* TODO: check permission to remove security.xattr */
+	return -EACCES;
+}
+
 static int apparmor_file_open(struct file *file, const struct cred *cred)
 {
 	struct aa_file_ctx *fctx = file_ctx(file);
@@ -1115,6 +1163,64 @@ static int apparmor_ismaclabel(const char *name)
 	return (strcmp(name, XATTR_APPARMOR_SUFFIX) == 0);
 }
 
+static int apparmor_inode_notifysecctx(struct inode *inode, void *ctx,
+				       u32 ctxlen)
+{
+	/* TODO */
+}
+
+static int apparmor_inode_setsecctx(struct dentry *dentry, void *ctx,
+				    u32 ctxlen)
+{
+	/* TODO */
+}
+
+static int apparmor_inode_getsecctx(struct inode *inode, void **ctx,
+				    u32 *ctxlen)
+{
+	/* TODO */
+}
+
+static int apparmor_inode_getsecurity(struct inode *inode, const char *name,
+				      void **buffer, bool alloc)
+{
+	if (strcmp(name, XATTR_APPARMOR_SUFFIX) == 0) {
+		// label_parse
+	}
+
+	/* TODO */
+	return 0;
+}
+
+static int apparmor_inode_setsecurity(struct inode *inode, const char *name,
+				      const void *value, size_t size, int flags)
+{
+
+	if (strcmp(name, XATTR_APPARMOR_SUFFIX) == 0) {
+		/* TODO: */
+	}
+
+	/* TODO: */
+}
+
+static int apparmor_inode_listsecurity(struct inode *inode, char *buffer,
+				       size_t buffer_size)
+{
+	int len = sizeof(XATTR_NAME_APPARMOR);
+
+	/* ??? TODO */
+
+	if (buffer != NULL && len <= buffer_size)
+		memcpy(buffer, XATTR_NAME_APPARMOR, len);
+
+	return len;
+}
+
+static void apparmor_inode_getsecid(struct inode *inode, u32 *secid)
+{
+	/* TODO: */
+}
+
 static struct security_hook_list apparmor_hooks[] __lsm_ro_after_init = {
 	LSM_HOOK_INIT(ptrace_access_check, apparmor_ptrace_access_check),
 	LSM_HOOK_INIT(ptrace_traceme, apparmor_ptrace_traceme),
@@ -1136,6 +1242,15 @@ static struct security_hook_list apparmor_hooks[] __lsm_ro_after_init = {
 	LSM_HOOK_INIT(path_chown, apparmor_path_chown),
 	LSM_HOOK_INIT(path_truncate, apparmor_path_truncate),
 	LSM_HOOK_INIT(inode_getattr, apparmor_inode_getattr),
+	LSM_HOOK_INIT(inode_getsecurity, apparmor_inode_getsecurity),
+	LSM_HOOK_INIT(inode_setsecurity, apparmor_inode_setsecurity),
+	LSM_HOOK_INIT(inode_listsecurity, apparmor_inode_listsecurity),
+	LSM_HOOK_INIT(inode_setxattr, apparmor_inode_setxattr),
+	LSM_HOOK_INIT(inode_post_setxattr, apparmor_inode_post_setxattr),
+	LSM_HOOK_INIT(inode_getxattr, apparmor_inode_getxattr),
+	LSM_HOOK_INIT(inode_listxattr, apparmor_inode_listxattr),
+	LSM_HOOK_INIT(inode_removexattr, apparmor_inode_removexattr),
+	LSM_HOOK_INIT(inode_getsecid, apparmor_inode_getsecid),
 
 	LSM_HOOK_INIT(file_open, apparmor_file_open),
 	LSM_HOOK_INIT(file_receive, apparmor_file_receive),
@@ -1190,6 +1305,9 @@ static struct security_hook_list apparmor_hooks[] __lsm_ro_after_init = {
 	LSM_HOOK_INIT(secid_to_secctx, apparmor_secid_to_secctx),
 	LSM_HOOK_INIT(secctx_to_secid, apparmor_secctx_to_secid),
 	LSM_HOOK_INIT(release_secctx, apparmor_release_secctx),
+	LSM_HOOK_INIT(inode_notifysecctx, apparmor_inode_notifysecctx),
+	LSM_HOOK_INIT(inode_setsecctx, apparmor_inode_setsecctx),
+	LSM_HOOK_INIT(inode_getsecctx, apparmor_inode_getsecctx),
 };
 
 /*
