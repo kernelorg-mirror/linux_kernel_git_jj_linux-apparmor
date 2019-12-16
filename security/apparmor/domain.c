@@ -685,9 +685,20 @@ static struct aa_label *profile_transition(struct aa_profile *profile,
 	} else if (COMPLAIN_MODE(profile)) {
 		/* no exec permission - learning mode */
 		struct aa_profile *new_profile = NULL;
+		char *n = kstrdup(name, GFP_ATOMIC);
 
-		new_profile = aa_new_null_profile(profile, false, name,
-						  GFP_KERNEL);
+		if (n) {
+			/* name is ptr into buffer */
+			long pos = name - buffer;
+			/* break per cpu buffer hold */
+			put_buffers(buffer);
+			new_profile = aa_new_null_profile(profile, false, n,
+							  GFP_KERNEL);
+			get_buffers(buffer);
+			name = buffer + pos;
+			strcpy((char *)name, n);
+			kfree(n);
+		}
 		if (!new_profile) {
 			error = -ENOMEM;
 			info = "could not create null profile";
@@ -892,12 +903,7 @@ int apparmor_bprm_set_creds(struct linux_binprm *bprm)
 		ctx->nnp = aa_get_label(label);
 
 	/* buffer freed below, name is pointer into buffer */
-	buffer = aa_get_buffer();
-	if (!buffer) {
-		error = -ENOMEM;
-		goto done;
-	}
-
+	get_buffers(buffer);
 	/* Test for onexec first as onexec override other x transitions. */
 	if (ctx->onexec)
 		new = handle_onexec(label, ctx->onexec, ctx->token,
@@ -969,7 +975,7 @@ int apparmor_bprm_set_creds(struct linux_binprm *bprm)
 
 done:
 	aa_put_label(label);
-	aa_put_buffer(buffer);
+	put_buffers(buffer);
 
 	return error;
 
