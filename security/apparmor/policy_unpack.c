@@ -31,6 +31,7 @@
 #define K_ABI_MASK 0x3ff
 #define FORCE_COMPLAIN_FLAG 0x800
 #define VERSION_LT(X, Y) (((X) & K_ABI_MASK) < ((Y) & K_ABI_MASK))
+#define VERSION_LE(X, Y) (((X) & K_ABI_MASK) <= ((Y) & K_ABI_MASK))
 #define VERSION_GT(X, Y) (((X) & K_ABI_MASK) > ((Y) & K_ABI_MASK))
 
 #define v5	5	/* base version */
@@ -650,7 +651,8 @@ static u32 map_other(u32 x)
 }
 
 static struct aa_perms compute_perms_entry(struct aa_dfa *dfa,
-					   unsigned int state)
+					   unsigned int state,
+					   u32 version)
 {
 	struct aa_perms perms = { };
 
@@ -663,13 +665,15 @@ static struct aa_perms compute_perms_entry(struct aa_dfa *dfa,
 	 */
 
 	perms.allow |= map_other(dfa_other_allow(dfa, state));
+	if (VERSION_LE(version, v8))
+		perms.allow |= AA_MAY_LOCK;
 	perms.audit |= map_other(dfa_other_audit(dfa, state));
 	perms.quiet |= map_other(dfa_other_quiet(dfa, state));
 
 	return perms;
 }
 
-static struct aa_perms *compute_perms(struct aa_dfa *dfa)
+static struct aa_perms *compute_perms(struct aa_dfa *dfa, u32 version)
 {
 	int state;
 	int state_count;
@@ -685,7 +689,7 @@ static struct aa_perms *compute_perms(struct aa_dfa *dfa)
 
 	/* zero init so skip the trap state (state == 0) */
 	for (state = 1; state < state_count; state++)
-		table[state] = compute_perms_entry(dfa, state);
+		table[state] = compute_perms_entry(dfa, state, version);
 
 	return table;
 }
@@ -886,7 +890,8 @@ static struct aa_profile *unpack_profile(struct aa_ext *e, char **ns_name)
 			goto fail;
 	} else
 		profile->policy.dfa = aa_get_dfa(nulldfa);
-	profile->policy.perms = compute_perms(profile->policy.dfa);
+	profile->policy.perms = compute_perms(profile->policy.dfa,
+					      e->version);
 	if (!profile->policy.perms) {
 		info = "failed to remap policydb permission table";
 		goto fail;
