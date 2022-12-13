@@ -30,11 +30,6 @@
 #include "include/policy_unpack.h"
 #include "include/policy_compat.h"
 
-#define tri int
-#define TRI_TRUE 1
-#define TRI_NONE 0
-#define TRI_FALSE -1
-
 /* audit callback for unpack fields */
 static void audit_cb(struct audit_buffer *ab, void *va)
 {
