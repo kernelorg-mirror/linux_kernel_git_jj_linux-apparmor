@@ -302,7 +302,7 @@ static int aa_xattrs_match(const struct linux_binprm *bprm,
 	struct dentry *d;
 	char *value = NULL;
 	struct aa_attachment *attach = &profile->attach;
-	int size, value_size = 0, ret = profile->xattr_count;
+	int size, value_size = 0, ret = attach->xattr_count;
 
 	if (!bprm || !attach->xattr_count)
 		return 0;

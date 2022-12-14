@@ -313,12 +313,13 @@ fail:
 }
 EXPORT_SYMBOL_IF_KUNIT(aa_unpack_u64);
 
-VISIBLE_IF_KUNIT tri unpack_array(struct aa_ext *e, const char *name, u16 *size)
+VISIBLE_IF_KUNIT tri aa_unpack_array(struct aa_ext *e, const char *name,
+				     u16 *size)
 {
 	void *pos = e->pos;
 
-	if (unpack_nameX(e, AA_ARRAY, name)) {
-		if (!inbounds(e, sizeof(u16)))
+	if (aa_unpack_nameX(e, AA_ARRAY, name)) {
+		if (!aa_inbounds(e, sizeof(u16)))
 			goto fail;
 		*size = le16_to_cpu(get_unaligned((__le16 *) e->pos));
 		e->pos += sizeof(u16);
@@ -637,20 +638,20 @@ static bool unpack_perm(struct aa_ext *e, u32 version, struct aa_perms *perm)
 	if (version != 1)
 		return false;
 
-	res = unpack_u32(e, &perm->allow, NULL);
-	res = res && unpack_u32(e, &perm->allow, NULL);
-	res = res && unpack_u32(e, &perm->deny, NULL);
-	res = res && unpack_u32(e, &perm->subtree, NULL);
-	res = res && unpack_u32(e, &perm->cond, NULL);
-	res = res && unpack_u32(e, &perm->kill, NULL);
-	res = res && unpack_u32(e, &perm->complain, NULL);
-	res = res && unpack_u32(e, &perm->prompt, NULL);
-	res = res && unpack_u32(e, &perm->audit, NULL);
-	res = res && unpack_u32(e, &perm->quiet, NULL);
-	res = res && unpack_u32(e, &perm->hide, NULL);
-	res = res && unpack_u32(e, &perm->xindex, NULL);
-	res = res && unpack_u32(e, &perm->tag, NULL);
-	res = res && unpack_u32(e, &perm->label, NULL);
+	res = aa_unpack_u32(e, &perm->allow, NULL);
+	res = res && aa_unpack_u32(e, &perm->allow, NULL);
+	res = res && aa_unpack_u32(e, &perm->deny, NULL);
+	res = res && aa_unpack_u32(e, &perm->subtree, NULL);
+	res = res && aa_unpack_u32(e, &perm->cond, NULL);
+	res = res && aa_unpack_u32(e, &perm->kill, NULL);
+	res = res && aa_unpack_u32(e, &perm->complain, NULL);
+	res = res && aa_unpack_u32(e, &perm->prompt, NULL);
+	res = res && aa_unpack_u32(e, &perm->audit, NULL);
+	res = res && aa_unpack_u32(e, &perm->quiet, NULL);
+	res = res && aa_unpack_u32(e, &perm->hide, NULL);
+	res = res && aa_unpack_u32(e, &perm->xindex, NULL);
+	res = res && aa_unpack_u32(e, &perm->tag, NULL);
+	res = res && aa_unpack_u32(e, &perm->label, NULL);
 
 	return res;
 }
@@ -665,13 +666,13 @@ static ssize_t unpack_perms_table(struct aa_ext *e, struct aa_perms **perms)
 	 * policy perms are optional, in which case perms are embedded
 	 * in the dfa accept table
 	 */
-	if (unpack_nameX(e, AA_STRUCT, "perms")) {
+	if (aa_unpack_nameX(e, AA_STRUCT, "perms")) {
 		int i;
 		u32 version;
 
-		if (!unpack_u32(e, &version, "version"))
+		if (!aa_unpack_u32(e, &version, "version"))
 			goto fail_reset;
-		if (unpack_array(e, NULL, &size) != TRI_TRUE)
+		if (aa_unpack_array(e, NULL, &size) != TRI_TRUE)
 			goto fail_reset;
 		*perms = kcalloc(size, sizeof(struct aa_perms), GFP_KERNEL);
 		if (!*perms)
@@ -680,9 +681,9 @@ static ssize_t unpack_perms_table(struct aa_ext *e, struct aa_perms **perms)
 			if (!unpack_perm(e, version, &(*perms)[i]))
 				goto fail;
 		}
-		if (!unpack_nameX(e, AA_ARRAYEND, NULL))
+		if (!aa_unpack_nameX(e, AA_ARRAYEND, NULL))
 			goto fail;
-		if (!unpack_nameX(e, AA_STRUCTEND, NULL))
+		if (!aa_unpack_nameX(e, AA_STRUCTEND, NULL))
 			goto fail;
 	} else
 		*perms = NULL;
@@ -742,10 +743,10 @@ static int unpack_pdb(struct aa_ext *e, struct aa_policydb *policy,
 	 * sadly start was given different names for file and policydb
 	 * but since it is optional we can try both
 	 */
-	if (!unpack_u32(e, &policy->start[0], "start"))
+	if (!aa_unpack_u32(e, &policy->start[0], "start"))
 		/* default start state */
 		policy->start[0] = DFA_START;
-	if (!unpack_u32(e, &policy->start[AA_CLASS_FILE], "dfa_start")) {
+	if (!aa_unpack_u32(e, &policy->start[AA_CLASS_FILE], "dfa_start")) {
 		/* default start state for xmatch and file dfa */
 		policy->start[AA_CLASS_FILE] = DFA_START;
 	}	/* setup class index */
