@@ -142,7 +142,7 @@ void aa_audit_perm_mask(struct audit_buffer *ab, u32 mask, const char *chrs,
 void aa_apply_modes_to_perms(struct aa_profile *profile,
 			     struct aa_perms *perms);
 void aa_compute_perms(struct aa_dfa *dfa, unsigned int state,
-		      struct aa_perms *perms);
+		      struct aa_perms *perms, u32 version);
 void aa_perms_accum(struct aa_perms *accum, struct aa_perms *addend);
 void aa_perms_accum_raw(struct aa_perms *accum, struct aa_perms *addend);
 void aa_profile_match_label(struct aa_profile *profile, struct aa_label *label,

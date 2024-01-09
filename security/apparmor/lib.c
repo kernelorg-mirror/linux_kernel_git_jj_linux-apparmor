@@ -329,7 +329,7 @@ static u32 map_xbits(u32 x)
 }
 
 void aa_compute_perms(struct aa_dfa *dfa, unsigned int state,
-		      struct aa_perms *perms)
+		      struct aa_perms *perms, u32 version)
 {
 	/* This mapping is convulated due to history.
 	 * v1-v4: only file perms
@@ -353,6 +353,8 @@ void aa_compute_perms(struct aa_dfa *dfa, unsigned int state,
 	 * to extend the general perm set
 	 */
 	perms->allow |= map_other(dfa_other_allow(dfa, state));
+	if (VERSION_LE(version, v8))
+		perms->allow |= AA_MAY_LOCK;
 	perms->audit |= map_other(dfa_other_audit(dfa, state));
 	perms->quiet |= map_other(dfa_other_quiet(dfa, state));
 }

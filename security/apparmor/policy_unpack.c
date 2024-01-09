@@ -28,7 +28,6 @@
 #include "include/policy.h"
 #include "include/policy_unpack.h"
 
-#define K_ABI_MASK 0x3ff
 #define FORCE_COMPLAIN_FLAG 0x800
 #define VERSION_LT(X, Y) (((X) & K_ABI_MASK) < ((Y) & K_ABI_MASK))
 #define VERSION_GT(X, Y) (((X) & K_ABI_MASK) > ((Y) & K_ABI_MASK))
@@ -36,7 +35,6 @@
 #define v5	5	/* base version */
 #define v6	6	/* per entry policydb mediation check */
 #define v7	7
-#define v8	8	/* full network masking */
 
 /* audit callback for unpack fields */
 static void audit_cb(struct audit_buffer *ab, void *va)
@@ -836,6 +834,7 @@ static struct aa_profile *unpack_profile(struct aa_ext *e, char **ns_name)
 		}
 		if (!aa_unpack_nameX(e, AA_STRUCTEND, NULL))
 			goto fail;
+		profile->policy.version = e->version;
 	} else
 		profile->policy.dfa = aa_get_dfa(nulldfa);
 

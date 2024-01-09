@@ -56,6 +56,11 @@ extern const char *const aa_profile_mode_names[];
 
 #define on_list_rcu(X) (!list_empty(X) && (X)->prev != LIST_POISON2)
 
+#define K_ABI_MASK 0x3ff
+#define VERSION_LE(X, Y) (((X) & K_ABI_MASK) <= ((Y) & K_ABI_MASK))
+
+#define v8	8	/* full network masking */
+
 /*
  * FIXME: currently need a clean way to replace and remove profiles as a
  * set.  It should be done at the namespace level.
@@ -78,6 +83,7 @@ struct aa_policydb {
 	/* Generic policy DFA specific rule types will be subsections of it */
 	struct aa_dfa *dfa;
 	unsigned int start[AA_CLASS_LAST + 1];
+	u32 version;
 
 };
 
