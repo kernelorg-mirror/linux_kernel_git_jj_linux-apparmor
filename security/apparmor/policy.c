@@ -233,7 +233,7 @@ void aa_free_profile(struct aa_profile *profile)
 	kfree_sensitive(profile->dirname);
 	aa_put_dfa(profile->xmatch);
 	aa_put_dfa(profile->policy.dfa);
-
+	kvfree(profile->policy.perms);
 	if (profile->data) {
 		rht = profile->data;
 		profile->data = NULL;

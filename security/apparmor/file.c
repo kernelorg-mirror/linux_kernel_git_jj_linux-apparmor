@@ -212,6 +212,7 @@ static u32 map_old_perms(u32 old)
  *
  * Returns: computed permission set
  */
+struct aa_perms default_perms = {};
 struct aa_perms aa_compute_fperms(struct aa_dfa *dfa, unsigned int state,
 				  struct path_cond *cond)
 {
